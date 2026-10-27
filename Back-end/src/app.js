@@ -1,0 +1,20 @@
+import express from "express";
+import cors from "cors";
+// 1. On importe notre fichier de routes qu'on vient de créer
+import applicationRoutes from "./routes/applicationRoutes.js";
+
+const app = express();
+
+// Middlewares essentiels
+app.use(cors());
+app.use(express.json()); // Indispensable pour lire le JSON dans les requêtes POST
+
+// Route de santé (pour tester si le serveur répond)
+app.get("/api/health", (req, res) => {
+	res.status(200).json({ status: "ok" });
+});
+
+// 2. On branche toutes nos routes de candidatures sous le préfixe "/api/applications"
+app.use("/api/applications", applicationRoutes);
+
+export default app;
