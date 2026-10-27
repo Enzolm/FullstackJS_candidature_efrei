@@ -1,13 +1,6 @@
-import { useEffect, useState } from "react"
-import {
-  AlertCircle,
-  ExternalLink,
-  LoaderCircle,
-  Search,
-  X,
-} from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { AlertCircle, ExternalLink, LoaderCircle, Search } from "lucide-react"
 import { DashboardNavbar } from "@/components/DashboardNavbar"
-import { useAuth } from "@/hooks/auth/useAuth"
 
 const API_URL = `${(import.meta.env.VITE_API_URL ?? "http://localhost:3000").replace(/\/$/, "")}/api`
 
@@ -18,93 +11,59 @@ type Job = {
   description: string
   publishedAt: string
   category: string
-  source: string
-  location: string
-  company: string
-}
-
-type ActiveFilters = {
-  domain: string
-  degree: string
-  location: string
-  contractType: string
 }
 
 export function JobsPage() {
-  const { user } = useAuth()
   const [jobs, setJobs] = useState<Job[]>([])
   const [query, setQuery] = useState("")
-  const [filters, setFilters] = useState<ActiveFilters>(() => ({
-    domain: user?.profile?.searchDomain ?? "",
-    degree: user?.profile?.currentDegree ?? "",
-    location: user?.profile?.location ?? "",
-    contractType: user?.profile?.contractType ?? "",
-  }))
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState("")
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      const loadJobs = async () => {
-        setIsLoading(true)
-        setError("")
-        try {
-          const token =
-            localStorage.getItem("token") ?? sessionStorage.getItem("token")
-          const params = new URLSearchParams({ query })
-          Object.entries(filters).forEach(([key, value]) => {
-            params.set(key, value)
-          })
-          const response = await fetch(`${API_URL}/jobs/search?${params}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-          const data = (await response.json()) as {
-            success: boolean
-            data?: Job[]
-            message?: string
-          }
-
-          if (!response.ok || !data.data) {
-            throw new Error(data.message ?? "Impossible de charger les offres.")
-          }
-
-          setJobs(data.data)
-        } catch (requestError) {
-          setError(
-            requestError instanceof Error
-              ? requestError.message
-              : "Impossible de charger les offres."
-          )
-        } finally {
-          setIsLoading(false)
+    const loadJobs = async () => {
+      try {
+        const token =
+          localStorage.getItem("token") ?? sessionStorage.getItem("token")
+        const response = await fetch(`${API_URL}/jobs/rss`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const data = (await response.json()) as {
+          success: boolean
+          data?: Job[]
+          message?: string
         }
+
+        if (!response.ok || !data.data) {
+          throw new Error(data.message ?? "Impossible de charger les offres.")
+        }
+
+        setJobs(data.data)
+      } catch (requestError) {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Impossible de charger les offres."
+        )
+      } finally {
+        setIsLoading(false)
       }
+    }
 
-      void loadJobs()
-    }, 350)
+    void loadJobs()
+  }, [])
 
-    return () => window.clearTimeout(timeoutId)
-  }, [query, filters])
+  const filteredJobs = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    if (!normalizedQuery) return jobs
 
-  const removeFilter = (key: keyof ActiveFilters) => {
-    setFilters((current) => ({ ...current, [key]: "" }))
-  }
-
-  const activeFilters = [
-    { key: "domain" as const, label: "Domaine", value: filters.domain },
-    { key: "degree" as const, label: "Diplôme", value: filters.degree },
-    {
-      key: "location" as const,
-      label: "Lieu",
-      value: filters.location,
-    },
-    {
-      key: "contractType" as const,
-      label: "Contrat",
-      value: filters.contractType,
-    },
-  ].filter((filter) => filter.value)
+    return jobs.filter((job) =>
+      [job.title, job.description, job.category]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery)
+    )
+  }, [jobs, query])
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#f7f5f0] font-sans text-[#1e463e] antialiased">
@@ -127,7 +86,7 @@ export function JobsPage() {
           <header className="mb-8">
             <h1 className="text-3xl font-bold">Offres d’emploi</h1>
             <p className="mt-1 text-sm font-medium text-[#1e463e]/65">
-              Offres Arbeitnow adaptées à tes préférences.
+              Les dernières offres remote full-stack de We Work Remotely.
             </p>
           </header>
 
@@ -144,44 +103,10 @@ export function JobsPage() {
             </div>
           </div>
 
-          {activeFilters.length > 0 && (
-            <div className="mb-6 flex max-w-4xl flex-wrap items-center gap-2">
-              <span className="mr-1 text-xs font-bold uppercase tracking-wide text-[#1e463e]/55">
-                Filtres actifs
-              </span>
-              {activeFilters.map((filter) => (
-                <button
-                  key={filter.key}
-                  type="button"
-                  onClick={() => removeFilter(filter.key)}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-[#b8cbc4] bg-[#edf4f0] px-3 py-1.5 text-xs font-semibold text-[#1e463e] hover:border-[#d96c4a] hover:text-[#b44f32]"
-                  aria-label={`Retirer le filtre ${filter.label}`}
-                >
-                  {filter.label} : {filter.value}
-                  <X className="size-3.5" />
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() =>
-                  setFilters({
-                    domain: "",
-                    degree: "",
-                    location: "",
-                    contractType: "",
-                  })
-                }
-                className="text-xs font-semibold text-[#1e463e]/60 underline hover:text-[#d96c4a]"
-              >
-                Tout retirer
-              </button>
-            </div>
-          )}
-
           {isLoading && (
             <div className="flex items-center gap-2 text-sm text-[#1e463e]/65">
               <LoaderCircle className="size-4 animate-spin" />
-              Recherche selon tes préférences...
+              Chargement des offres...
             </div>
           )}
 
@@ -192,12 +117,12 @@ export function JobsPage() {
             </div>
           )}
 
-          {!isLoading && !error && jobs.length === 0 && (
+          {!isLoading && !error && filteredJobs.length === 0 && (
             <p className="text-sm text-[#1e463e]/65">Aucune offre trouvée.</p>
           )}
 
           <div className="grid gap-5 xl:grid-cols-2">
-            {jobs.map((job) => (
+            {filteredJobs.map((job) => (
               <article
                 key={job.id}
                 className="rounded-2xl border border-[#eae5da] bg-white p-5 shadow-[0_4px_15px_rgba(30,70,62,0.04)]"
@@ -206,8 +131,7 @@ export function JobsPage() {
                   <div>
                     <h2 className="text-lg font-bold">{job.title}</h2>
                     <p className="mt-1 text-xs text-[#1e463e]/55">
-                      {job.source} · {job.company || job.category || "Offre"}{" "}
-                      {job.location && `· ${job.location}`}{" "}
+                      {job.category || "Full-stack programming"}{" "}
                       {job.publishedAt &&
                         `· ${new Date(job.publishedAt).toLocaleDateString("fr-FR")}`}
                     </p>

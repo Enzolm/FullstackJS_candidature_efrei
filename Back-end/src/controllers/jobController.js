@@ -1,127 +1,55 @@
-import User from "../models/User.js";
+const RSS_URL =
+	"https://weworkremotely.com/categories/remote-full-stack-programming-jobs.rss";
 
-const ARBEITNOW_URL = "https://www.arbeitnow.fr/api/job-board-api";
+const decodeXml = (value) =>
+	value
+		.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+		.replace(/&amp;/g, "&")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&quot;/g, '"')
+		.replace(/&#39;/g, "'");
 
-const clean = (value) => (typeof value === "string" ? value.trim() : "");
-
-const normalize = (value) =>
-	clean(value)
-		.normalize("NFD")
-		.replace(/[\u0300-\u036f]/g, "")
-		.toLowerCase();
-
-const buildLocation = (profile) =>
-	clean(profile.location).replace(/[,;].*$/, "").trim();
-
-const searchArbeitnow = async ({ query, domain, degree, location, contractType }) => {
-	const response = await fetch(ARBEITNOW_URL, {
-		headers: { Accept: "application/json" },
-	});
-
-	if (!response.ok) {
-		throw new Error(`Arbeitnow a répondu avec le statut ${response.status}.`);
-	}
-
-	const data = await response.json();
-	if (!Array.isArray(data.data)) {
-		throw new Error("La réponse Arbeitnow est invalide.");
-	}
-
-	const searchTerms = [query, domain, degree]
-		.map(normalize)
-		.filter((term) => term.length > 2);
-	const locationTerm = normalize(location);
-	const contractTerm = normalize(contractType);
-
-	return data.data
-		.filter((job) => {
-			const searchable = normalize(
-				[
-					job.title,
-					job.description,
-					job.company_name,
-					job.location,
-					job.remote,
-					job.job_types,
-					...(Array.isArray(job.tags) ? job.tags : []),
-				].join(" "),
-			);
-			const matchesSearch =
-				searchTerms.length === 0 ||
-				searchTerms.some((term) => searchable.includes(term));
-			const matchesLocation =
-				!locationTerm ||
-				normalize(job.location).includes(locationTerm) ||
-				normalize(job.description).includes(locationTerm) ||
-				normalize(job.remote).includes(locationTerm);
-			const matchesContract =
-				!contractTerm || searchable.includes(contractTerm);
-
-			return matchesSearch && matchesLocation && matchesContract;
-		})
-		.map((job) => ({
-			id: `arbeitnow-${job.slug || job.id}`,
-			source: "Arbeitnow",
-			title: job.title ?? "Offre sans intitulé",
-			link: job.url ?? "",
-			description: job.description ?? "",
-			publishedAt: job.created_at ?? "",
-			category: Array.isArray(job.tags) ? job.tags.join(", ") : "",
-			location: job.location ?? "",
-			company: job.company_name ?? "",
-		}));
+const getTagValue = (item, tag) => {
+	const match = item.match(
+		new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`, "i"),
+	);
+	return match ? decodeXml(match[1].trim()) : "";
 };
 
-export const searchJobs = async (req, res) => {
+export const getRemoteJobs = async (req, res) => {
 	try {
-		const user = await User.findById(req.user.userId).select("profile");
-		if (!user) {
-			return res.status(404).json({
+		const response = await fetch(RSS_URL, {
+			headers: { "User-Agent": "TrackMyApply/1.0" },
+		});
+
+		if (!response.ok) {
+			return res.status(502).json({
 				success: false,
-				message: "Utilisateur introuvable.",
+				message: "Le flux des offres est indisponible.",
 			});
 		}
 
-		const profile = user.profile?.toObject?.() ?? user.profile ?? {};
-		const query = clean(req.query.query);
-		const domain = Object.prototype.hasOwnProperty.call(req.query, "domain")
-			? clean(req.query.domain)
-			: clean(profile.searchDomain);
-		const degree = Object.prototype.hasOwnProperty.call(req.query, "degree")
-			? clean(req.query.degree)
-			: clean(profile.currentDegree);
-		const location = Object.prototype.hasOwnProperty.call(req.query, "location")
-			? clean(req.query.location)
-			: buildLocation(profile);
-		const contractType = Object.prototype.hasOwnProperty.call(
-			req.query,
-			"contractType",
-		)
-			? clean(req.query.contractType)
-			: clean(profile.contractType);
-		const jobs = await searchArbeitnow({
-			query,
-			domain,
-			degree,
-			location,
-			contractType,
-		});
-		const uniqueJobs = [...new Map(jobs.map((job) => [job.id, job])).values()]
-			.sort(
-				(first, second) =>
-					new Date(second.publishedAt || 0) -
-					new Date(first.publishedAt || 0),
-			);
+		const xml = await response.text();
+		const items = [...xml.matchAll(/<item(?:\s[^>]*)?>([\s\S]*?)<\/item>/gi)].map(
+			([, item], index) => ({
+				id:
+					getTagValue(item, "guid") ||
+					getTagValue(item, "link") ||
+					String(index),
+				title: getTagValue(item, "title"),
+				link: getTagValue(item, "link"),
+				description: getTagValue(item, "description"),
+				publishedAt: getTagValue(item, "pubDate"),
+				category: getTagValue(item, "category"),
+			}),
+		);
 
-		return res.status(200).json({
-			success: true,
-			data: uniqueJobs,
-			preferences: { query, domain, degree, location, contractType },
-		});
+		return res.status(200).json({ success: true, data: items });
 	} catch (error) {
 		return res.status(502).json({
 			success: false,
-			message: "Impossible de récupérer les offres Arbeitnow.",
+			message: "Impossible de récupérer les offres d'emploi.",
 			error: error.message,
 		});
 	}
