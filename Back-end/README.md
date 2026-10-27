@@ -166,6 +166,12 @@ Authorization: Bearer <token>
 | --- | --- |
 | `pnpm dev` | Démarre l’API avec nodemon |
 | `pnpm start` | Démarre l’API avec Node.js |
-| `pnpm test` | Aucun test n’est configuré actuellement |
+| `pnpm test` | Exécute la suite de tests Jest |
+| `pnpm test:auth` | Exécute les tests unitaires d’authentification |
 
 La documentation Swagger/OpenAPI n’est pas encore configurée dans ce backend.
+
+Les tests d’authentification utilisent Jest avec des mocks de MongoDB et de
+`bcrypt`. Ils couvrent les tokens JWT, l’inscription, la connexion, la
+réinitialisation et le changement de mot de passe, ainsi que l’onboarding et
+la mise à jour du profil.

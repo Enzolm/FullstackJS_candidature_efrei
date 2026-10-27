@@ -183,9 +183,20 @@ L'application frontend sera accessible sur `http://localhost:5173`.
 - **Swagger UI :** La documentation de l'API REST est accessible une fois le serveur lancé à l'adresse : `http://localhost:5000/api-docs`
 - **Lancer les tests automatisés :**
   ```bash
-  cd backend
+  cd Back-end
   pnpm run test
   ```
+- **Lancer uniquement les tests d'authentification :**
+  ```bash
+  pnpm run test:auth
+  ```
+- **Tests d'authentification actuellement couverts :**
+  - Refus d'une requête protégée lorsque le token JWT est absent.
+  - Refus d'une requête protégée lorsque le token JWT est invalide.
+  - Acceptation d'un token JWT valide et transmission de l'identifiant utilisateur au middleware suivant.
+  - Refus d'un nouveau mot de passe de moins de 8 caractères.
+  - Refus d'un code de réinitialisation de mot de passe invalide.
+- Les tests utilisent **Jest** avec l'environnement Node.js et sont situés dans `Back-end/test/auth.test.js`.
 
 ---
 
