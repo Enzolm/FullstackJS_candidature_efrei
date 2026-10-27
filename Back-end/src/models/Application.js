@@ -35,10 +35,23 @@ const applicationSchema = new mongoose.Schema(
                 "entretien prévu",
                 "entretien",
                 "relance faite",
+                "offre reçue",
                 "refusé",
             ],
             default: "postulé",
         },
+        timeline: [
+            {
+                date: { type: Date, default: Date.now },
+                type: {
+                    type: String,
+                    enum: ["email", "call", "interview", "note", "status"],
+                    required: true,
+                },
+                title: { type: String, required: true },
+                note: { type: String },
+            },
+        ],
         applicationDate: {
             type: Date,
             default: Date.now,

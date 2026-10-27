@@ -6,6 +6,14 @@ export const createApplication = async (req, res) => {
 		const newApplication = new Application({
 			...req.body,
 			user: req.user.userId, // On associe la candidature à l'utilisateur connecté
+			timeline: [
+				{
+					date: new Date(),
+					type: "status",
+					title: "Candidature créée",
+					note: `Statut initial : ${req.body.status || "postulé"}`,
+				},
+			],
 		});
 
 		const savedApplication = await newApplication.save();
@@ -79,18 +87,49 @@ export const getApplicationById = async (req, res) => {
 // --- UPDATE : Modifier une candidature ---
 export const updateApplication = async (req, res) => {
 	try {
-		const updatedApplication = await Application.findOneAndUpdate(
-			{ _id: req.params.id, user: req.user.userId },
-			req.body,
-			{ new: true, runValidators: true },
-		);
+		const application = await Application.findOne({
+			_id: req.params.id,
+			user: req.user.userId,
+		});
 
-		if (!updatedApplication) {
+		if (!application) {
 			return res.status(404).json({
 				success: false,
 				message: "Candidature non trouvée",
 			});
 		}
+
+		const editableFields = [
+			"company",
+			"position",
+			"city",
+			"address",
+			"commuteTime",
+			"channel",
+			"jobUrl",
+			"applicationDate",
+			"nextFollowUpDate",
+			"contact",
+			"status",
+		];
+		const previousStatus = application.status;
+
+		for (const field of editableFields) {
+			if (Object.hasOwn(req.body, field)) {
+				application.set(field, req.body[field]);
+			}
+		}
+
+		if (application.status !== previousStatus) {
+			application.timeline.push({
+				date: new Date(),
+				type: "status",
+				title: "Statut modifié",
+				note: `${previousStatus} → ${application.status}`,
+			});
+		}
+
+		const updatedApplication = await application.save();
 
 		res.status(200).json({
 			success: true,

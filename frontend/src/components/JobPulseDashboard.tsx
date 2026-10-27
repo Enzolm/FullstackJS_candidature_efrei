@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import {
   ChartLine,
+  Check,
   Search,
   Plus,
   ChevronDown,
@@ -26,6 +27,7 @@ import {
   UploadCloud,
   CheckCircle2,
 } from "lucide-react"
+import { Select as BaseSelect } from "@base-ui/react/select"
 import { Button } from "@/components/ui/button"
 import { DashboardNavbar } from "@/components/DashboardNavbar"
 import { useAuth } from "@/hooks/auth/useAuth"
@@ -36,11 +38,17 @@ const API_URL = `${(import.meta.env.VITE_API_URL ?? "http://localhost:3000").rep
 /*                              Types                                 */
 /* ------------------------------------------------------------------ */
 
-type Status = "applied" | "interview" | "offer" | "followup" | "rejected"
+type Status =
+  | "applied"
+  | "pending"
+  | "interview"
+  | "offer"
+  | "followup"
+  | "rejected"
 
 type TimelineEntry = {
   date: string
-  type: "email" | "call" | "interview" | "note"
+  type: "email" | "call" | "interview" | "note" | "status"
   title: string
   note?: string
 }
@@ -49,6 +57,13 @@ type Application = {
   id: string
   company: string
   role: string
+  city?: string
+  jobUrl?: string
+  contact?: {
+    name?: string
+    email?: string
+    phone?: string
+  }
   sentAt: string
   status: Status
   channel: "LinkedIn" | "WTTJ" | "Site" | "Référence"
@@ -67,6 +82,12 @@ const STATUS_META: Record<
 > = {
   applied: {
     label: "Applied",
+    bg: "bg-gray-100",
+    text: "text-gray-600",
+    dot: "bg-gray-400",
+  },
+  pending: {
+    label: "En attente",
     bg: "bg-gray-100",
     text: "text-gray-600",
     dot: "bg-gray-400",
@@ -113,22 +134,40 @@ type ApiApplication = {
   _id: string
   company: string
   position: string
+  city?: string
+  jobUrl?: string
+  contact?: {
+    name?: string
+    email?: string
+    phone?: string
+  }
   channel?: string
   status: string
   applicationDate: string
   nextFollowUpDate?: string
+  timeline?: {
+    date: string
+    type: TimelineEntry["type"]
+    title: string
+    note?: string
+  }[]
+}
+
+const API_STATUS_BY_UI_STATUS: Record<Status, string> = {
+  applied: "postulé",
+  pending: "en attente",
+  interview: "entretien prévu",
+  offer: "offre reçue",
+  followup: "relance faite",
+  rejected: "refusé",
 }
 
 function mapApiApplication(application: ApiApplication): Application {
-  const status: Status =
-    application.status === "refusé"
-      ? "rejected"
-      : application.status === "entretien" ||
-          application.status === "entretien prévu"
-        ? "interview"
-        : application.status === "relance faite"
-          ? "followup"
-          : "applied"
+  const status =
+    (Object.keys(API_STATUS_BY_UI_STATUS) as Status[]).find(
+      (candidate) =>
+        API_STATUS_BY_UI_STATUS[candidate] === application.status
+    ) ?? (application.status === "entretien" ? "interview" : "applied")
   const availableChannels = ["LinkedIn", "WTTJ", "Site", "Référence"] as const
   const channel =
     availableChannels.find((candidate) => candidate === application.channel) ??
@@ -139,19 +178,24 @@ function mapApiApplication(application: ApiApplication): Application {
     id: application._id,
     company: application.company,
     role: application.position,
+    city: application.city,
+    jobUrl: application.jobUrl,
+    contact: application.contact,
     sentAt: Number.isNaN(sentAt.getTime())
       ? application.applicationDate
       : sentAt.toISOString().slice(0, 10),
     status,
     channel,
     docs: { cv: false, lm: false },
-    timeline: [
-      {
-        date: application.applicationDate,
-        type: "email",
-        title: "Candidature enregistrée",
-      },
-    ],
+    timeline: application.timeline?.length
+      ? application.timeline
+      : [
+          {
+            date: application.applicationDate,
+            type: "email",
+            title: "Candidature enregistrée",
+          },
+        ],
     followupDue: application.nextFollowUpDate,
   }
 }
@@ -209,6 +253,13 @@ export function JobPulseDashboard() {
   >("all")
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [deletingApplicationId, setDeletingApplicationId] = useState<string | null>(
+    null
+  )
+  const [applicationToEdit, setApplicationToEdit] =
+    useState<Application | null>(null)
+  const [applicationToView, setApplicationToView] =
+    useState<Application | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
 
   useEffect(() => {
@@ -303,6 +354,9 @@ export function JobPulseDashboard() {
     const dataToSend = {
       company: payload.company,
       position: payload.role,
+      city: payload.city,
+      jobUrl: payload.jobUrl,
+      contact: payload.contact,
       applicationDate: payload.sentAt,
       channel: payload.channel,
       nextFollowUpDate: payload.followupDue,
@@ -344,9 +398,98 @@ export function JobPulseDashboard() {
     setApplications((prev) => [newApp, ...prev])
   }
 
-  const handleDelete = (id: string) => {
-    setApplications((prev) => prev.filter((a) => a.id !== id))
-    if (expandedId === id) setExpandedId(null)
+  const handleDelete = async (id: string) => {
+    const token =
+      localStorage.getItem("token") ?? sessionStorage.getItem("token")
+
+    if (!token) {
+      setApplicationsError("Reconnecte-toi pour supprimer une candidature.")
+      return
+    }
+
+    setApplicationsError("")
+    setDeletingApplicationId(id)
+
+    try {
+      const response = await fetch(`${API_URL}/applications/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const result = (await response.json()) as { message?: string }
+
+      if (!response.ok) {
+        throw new Error(
+          result.message ??
+            `Le serveur a refusé la suppression (${response.status}).`
+        )
+      }
+
+      setApplications((previous) =>
+        previous.filter((application) => application.id !== id)
+      )
+      if (expandedId === id) setExpandedId(null)
+    } catch (error) {
+      setApplicationsError(
+        error instanceof Error
+          ? error.message
+          : "Impossible de supprimer la candidature."
+      )
+    } finally {
+      setDeletingApplicationId(null)
+    }
+  }
+
+  const handleUpdate = async (
+    applicationId: string,
+    updates: Omit<Application, "id" | "timeline">
+  ) => {
+    const token =
+      localStorage.getItem("token") ?? sessionStorage.getItem("token")
+
+    if (!token) {
+      throw new Error("Reconnecte-toi pour modifier une candidature.")
+    }
+
+    const response = await fetch(
+      `${API_URL}/applications/${applicationId}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          company: updates.company,
+          position: updates.role,
+          city: updates.city,
+          jobUrl: updates.jobUrl,
+          contact: updates.contact,
+          applicationDate: updates.sentAt,
+          channel: updates.channel,
+          nextFollowUpDate: updates.followupDue,
+          status: API_STATUS_BY_UI_STATUS[updates.status],
+        }),
+      }
+    )
+    const result = (await response.json()) as {
+      data?: ApiApplication
+      message?: string
+    }
+
+    if (!response.ok || !result.data) {
+      throw new Error(
+        result.message ??
+          `Le serveur a refusé la modification (${response.status}).`
+      )
+    }
+
+    const updatedApplication = mapApiApplication(result.data)
+    setApplications((previous) =>
+      previous.map((application) =>
+        application.id === applicationId ? updatedApplication : application
+      )
+    )
+    setApplicationToEdit(null)
   }
 
   return (
@@ -403,35 +546,34 @@ export function JobPulseDashboard() {
                 className="w-full rounded-2xl border border-transparent bg-white py-2.5 pr-3 pl-9 text-sm shadow-[0_4px_15px_rgba(30,70,62,0.04)] outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
               />
             </div>
-            <select
+            <StyledSelect
               value={statusFilter}
-              onChange={(e) =>
-                setStatusFilter(e.target.value as Status | "all")
-              }
-              className="rounded-2xl border border-transparent bg-white px-4 py-2.5 text-sm shadow-[0_4px_15px_rgba(30,70,62,0.04)] outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
-            >
-              <option value="all">Tous statuts</option>
-              {Object.entries(STATUS_META).map(([key, meta]) => (
-                <option key={key} value={key}>
-                  {meta.label}
-                </option>
-              ))}
-            </select>
-            <select
+              onChange={(value) => setStatusFilter(value as Status | "all")}
+              ariaLabel="Filtrer par statut"
+              options={[
+                { value: "all", label: "Tous statuts" },
+                ...Object.entries(STATUS_META).map(([key, meta]) => ({
+                  value: key,
+                  label: meta.label,
+                })),
+              ]}
+              className="h-[42px] rounded-2xl border border-transparent bg-white px-4 text-sm shadow-[0_4px_15px_rgba(30,70,62,0.04)] outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
+            />
+            <StyledSelect
               value={channelFilter}
-              onChange={(e) =>
-                setChannelFilter(
-                  e.target.value as Application["channel"] | "all"
-                )
+              onChange={(value) =>
+                setChannelFilter(value as Application["channel"] | "all")
               }
-              className="rounded-2xl border border-transparent bg-white px-4 py-2.5 text-sm shadow-[0_4px_15px_rgba(30,70,62,0.04)] outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
-            >
-              <option value="all">Tous canaux</option>
-              <option value="LinkedIn">LinkedIn</option>
-              <option value="WTTJ">WTTJ</option>
-              <option value="Site">Site</option>
-              <option value="Référence">Référence</option>
-            </select>
+              ariaLabel="Filtrer par canal"
+              options={[
+                { value: "all", label: "Tous canaux" },
+                { value: "LinkedIn", label: "LinkedIn" },
+                { value: "WTTJ", label: "WTTJ" },
+                { value: "Site", label: "Site" },
+                { value: "Référence", label: "Référence" },
+              ]}
+              className="h-[42px] rounded-2xl border border-transparent bg-white px-4 text-sm shadow-[0_4px_15px_rgba(30,70,62,0.04)] outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
+            />
           </div>
 
           {/* Section title + sort/filter icons */}
@@ -556,25 +698,53 @@ export function JobPulseDashboard() {
                             e.stopPropagation()
                             setExpandedId(expanded ? null : app.id)
                           }}
+                          className="flex size-9 items-center justify-center rounded-full bg-[#f7f5f0] text-[#1e463e]/70 transition-colors hover:bg-[#2b7a78] hover:text-white"
+                          aria-label={
+                            expanded
+                              ? "Masquer la progression"
+                              : "Voir la progression"
+                          }
+                          title="Progression"
+                        >
+                          <ChevronDown
+                            className={`size-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setApplicationToView(app)
+                          }}
                           className="flex size-9 items-center justify-center rounded-xl bg-[#f7f5f0] text-[#1e463e]/70 transition-colors hover:bg-[#2b7a78] hover:text-white"
-                          aria-label="Voir timeline"
+                          aria-label="Consulter la candidature"
+                          title="Consulter"
                         >
                           <Eye className="size-4" />
                         </button>
                         <button
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setApplicationToEdit(app)
+                          }}
                           className="flex size-9 items-center justify-center rounded-xl bg-[#f7f5f0] text-[#1e463e]/70 transition-colors hover:bg-[#1e463e] hover:text-white"
                           aria-label="Éditer"
+                          title="Modifier"
                         >
                           <Pencil className="size-4" />
                         </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
-                            handleDelete(app.id)
+                            void handleDelete(app.id)
                           }}
-                          className="flex size-9 items-center justify-center rounded-xl bg-[#f7f5f0] text-[#1e463e]/70 transition-colors hover:bg-[#d96c4a] hover:text-white"
+                          disabled={deletingApplicationId === app.id}
+                          className="flex size-9 items-center justify-center rounded-xl bg-[#f7f5f0] text-[#1e463e]/70 transition-colors hover:bg-[#d96c4a] hover:text-white disabled:cursor-wait disabled:opacity-50"
                           aria-label="Supprimer"
+                          title={
+                            deletingApplicationId === app.id
+                              ? "Suppression..."
+                              : "Supprimer"
+                          }
                         >
                           <Trash2 className="size-4" />
                         </button>
@@ -766,6 +936,21 @@ export function JobPulseDashboard() {
           onSubmit={handleCreate}
         />
       )}
+      {applicationToEdit && (
+        <EditApplicationModal
+          application={applicationToEdit}
+          onClose={() => setApplicationToEdit(null)}
+          onSubmit={(updates) =>
+            handleUpdate(applicationToEdit.id, updates)
+          }
+        />
+      )}
+      {applicationToView && (
+        <ApplicationDetailsModal
+          application={applicationToView}
+          onClose={() => setApplicationToView(null)}
+        />
+      )}
     </div>
   )
 }
@@ -785,6 +970,12 @@ function ApplicationModal({
 }) {
   const [company, setCompany] = useState("")
   const [role, setRole] = useState("")
+  const [city, setCity] = useState("")
+  const [jobUrl, setJobUrl] = useState("")
+  const [hasContact, setHasContact] = useState(false)
+  const [contactName, setContactName] = useState("")
+  const [contactEmail, setContactEmail] = useState("")
+  const [contactPhone, setContactPhone] = useState("")
   const [channel, setChannel] = useState<Application["channel"]>("LinkedIn")
   const [sentAt, setSentAt] = useState(new Date().toISOString().slice(0, 10))
   const [followupDue, setFollowupDue] = useState("")
@@ -806,6 +997,15 @@ function ApplicationModal({
       await onSubmit({
         company: company.trim(),
         role: role.trim(),
+        city: city.trim() || undefined,
+        jobUrl: jobUrl.trim() || undefined,
+        contact: hasContact
+          ? {
+              name: contactName.trim() || undefined,
+              email: contactEmail.trim() || undefined,
+              phone: contactPhone.trim() || undefined,
+            }
+          : undefined,
         channel,
         sentAt,
         followupDue: followupDue || undefined,
@@ -882,6 +1082,32 @@ function ApplicationModal({
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div>
+              <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
+                City <span className="font-normal text-[#1e463e]/50">(optional)</span>
+              </label>
+              <input
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder="e.g. Paris"
+                className="w-full rounded-xl border border-transparent bg-white px-4 py-3 shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
+                Job link <span className="font-normal text-[#1e463e]/50">(optional)</span>
+              </label>
+              <input
+                type="url"
+                value={jobUrl}
+                onChange={(e) => setJobUrl(e.target.value)}
+                placeholder="https://..."
+                className="w-full rounded-xl border border-transparent bg-white px-4 py-3 shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <div>
               <span className="mb-2 block text-sm font-bold text-[#1e463e]/80">
                 Status at creation
               </span>
@@ -907,18 +1133,20 @@ function ApplicationModal({
               <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
                 Channel
               </label>
-              <select
+              <StyledSelect
                 value={channel}
-                onChange={(e) =>
-                  setChannel(e.target.value as Application["channel"])
+                onChange={(value) =>
+                  setChannel(value as Application["channel"])
                 }
-                className="w-full cursor-pointer appearance-none rounded-xl border border-transparent bg-white px-4 py-3 shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
-              >
-                <option value="LinkedIn">LinkedIn</option>
-                <option value="WTTJ">WTTJ</option>
-                <option value="Site">Site</option>
-                <option value="Référence">Référence</option>
-              </select>
+                ariaLabel="Canal"
+                options={[
+                  { value: "LinkedIn", label: "LinkedIn" },
+                  { value: "WTTJ", label: "WTTJ" },
+                  { value: "Site", label: "Site" },
+                  { value: "Référence", label: "Référence" },
+                ]}
+                className="h-[50px] w-full rounded-xl border border-transparent bg-white px-4 shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
+              />
             </div>
             <div>
               <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
@@ -931,6 +1159,59 @@ function ApplicationModal({
                 className="w-full rounded-xl border border-transparent bg-white px-4 py-3 shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
               />
             </div>
+          </div>
+
+          <div className="space-y-4 rounded-2xl bg-white p-5 shadow-sm">
+            <label className="flex cursor-pointer items-center gap-3 text-sm font-bold text-[#1e463e]/80">
+              <input
+                type="checkbox"
+                checked={hasContact}
+                onChange={(e) => setHasContact(e.target.checked)}
+                className="size-4 rounded border-[#ddd8ce] accent-[#1e463e]"
+              />
+              J’ai un contact pour cette candidature
+              <span className="font-normal text-[#1e463e]/50">(facultatif)</span>
+            </label>
+
+            {hasContact && (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
+                    Nom du contact
+                  </label>
+                  <input
+                    value={contactName}
+                    onChange={(e) => setContactName(e.target.value)}
+                    placeholder="Nom"
+                    className="w-full rounded-xl border border-transparent bg-[#f7f5f0] px-4 py-3 shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
+                    E-mail du contact
+                  </label>
+                  <input
+                    type="email"
+                    value={contactEmail}
+                    onChange={(e) => setContactEmail(e.target.value)}
+                    placeholder="contact@entreprise.fr"
+                    className="w-full rounded-xl border border-transparent bg-[#f7f5f0] px-4 py-3 shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
+                    Téléphone du contact
+                  </label>
+                  <input
+                    type="tel"
+                    value={contactPhone}
+                    onChange={(e) => setContactPhone(e.target.value)}
+                    placeholder="06 00 00 00 00"
+                    className="w-full rounded-xl border border-transparent bg-[#f7f5f0] px-4 py-3 shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Dropzone */}
@@ -1006,6 +1287,473 @@ function ApplicationModal({
           Application saved successfully!
         </div>
       )}
+    </div>
+  )
+}
+
+function EditApplicationModal({
+  application,
+  onClose,
+  onSubmit,
+}: {
+  application: Application
+  onClose: () => void
+  onSubmit: (
+    updates: Omit<Application, "id" | "timeline">
+  ) => Promise<void>
+}) {
+  const [company, setCompany] = useState(application.company)
+  const [role, setRole] = useState(application.role)
+  const [city, setCity] = useState(application.city ?? "")
+  const [jobUrl, setJobUrl] = useState(application.jobUrl ?? "")
+  const [channel, setChannel] = useState(application.channel)
+  const [status, setStatus] = useState(application.status)
+  const [sentAt, setSentAt] = useState(application.sentAt)
+  const [followupDue, setFollowupDue] = useState(application.followupDue ?? "")
+  const [hasContact, setHasContact] = useState(Boolean(application.contact))
+  const [contactName, setContactName] = useState(
+    application.contact?.name ?? ""
+  )
+  const [contactEmail, setContactEmail] = useState(
+    application.contact?.email ?? ""
+  )
+  const [contactPhone, setContactPhone] = useState(
+    application.contact?.phone ?? ""
+  )
+  const [error, setError] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError("")
+    setIsSubmitting(true)
+
+    try {
+      await onSubmit({
+        company: company.trim(),
+        role: role.trim(),
+        city: city.trim() || undefined,
+        jobUrl: jobUrl.trim() || undefined,
+        contact: hasContact
+          ? {
+              name: contactName.trim() || undefined,
+              email: contactEmail.trim() || undefined,
+              phone: contactPhone.trim() || undefined,
+            }
+          : undefined,
+        channel,
+        status,
+        sentAt,
+        followupDue: followupDue || undefined,
+        docs: application.docs,
+      })
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Impossible de modifier la candidature."
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-[#1e463e]/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-application-title"
+        className="w-full max-w-2xl overflow-hidden rounded-3xl bg-[#f7f5f0] shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="flex items-center justify-between border-b border-[#1e463e]/10 bg-white px-8 py-6">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-[#d96c4a]">
+              Modifier le dossier
+            </p>
+            <h2
+              id="edit-application-title"
+              className="mt-1 text-2xl font-bold text-[#1e463e]"
+            >
+              {application.company}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xl text-[#1e463e]/50 transition-colors hover:text-[#d96c4a]"
+            aria-label="Fermer"
+          >
+            <X className="size-5" />
+          </button>
+        </header>
+
+        <form onSubmit={handleSubmit} className="max-h-[80vh] space-y-6 overflow-y-auto p-8">
+          {error && (
+            <p role="alert" className="text-sm text-red-700">
+              {error}
+            </p>
+          )}
+
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <FormField label="Entreprise" value={company} onChange={setCompany} />
+            <FormField label="Poste" value={role} onChange={setRole} />
+            <FormField label="Ville (facultatif)" value={city} onChange={setCity} />
+            <FormField
+              label="Lien de l’offre (facultatif)"
+              type="url"
+              value={jobUrl}
+              onChange={setJobUrl}
+            />
+            <label className="block text-sm font-bold text-[#1e463e]/80">
+              Statut
+              <StyledSelect
+                value={status}
+                onChange={(value) => setStatus(value as Status)}
+                ariaLabel="Statut"
+                options={Object.entries(STATUS_META).map(([key, meta]) => ({
+                  value: key,
+                  label: meta.label,
+                }))}
+                className="mt-2 h-[50px] w-full rounded-xl border border-transparent bg-white px-4 font-normal shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
+              />
+            </label>
+            <label className="block text-sm font-bold text-[#1e463e]/80">
+              Canal
+              <StyledSelect
+                value={channel}
+                onChange={(value) =>
+                  setChannel(value as Application["channel"])
+                }
+                ariaLabel="Canal"
+                options={[
+                  { value: "LinkedIn", label: "LinkedIn" },
+                  { value: "WTTJ", label: "WTTJ" },
+                  { value: "Site", label: "Site" },
+                  { value: "Référence", label: "Référence" },
+                ]}
+                className="mt-2 h-[50px] w-full rounded-xl border border-transparent bg-white px-4 font-normal shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
+              />
+            </label>
+            <FormField
+              label="Date de candidature"
+              type="date"
+              value={sentAt}
+              onChange={setSentAt}
+            />
+            <FormField
+              label="Date de relance (facultatif)"
+              type="date"
+              value={followupDue}
+              onChange={setFollowupDue}
+            />
+          </div>
+
+          <section className="space-y-4 rounded-2xl bg-white p-5 shadow-sm">
+            <label className="flex cursor-pointer items-center gap-3 text-sm font-bold text-[#1e463e]/80">
+              <input
+                type="checkbox"
+                checked={hasContact}
+                onChange={(event) => setHasContact(event.target.checked)}
+                className="size-4 rounded border-[#ddd8ce] accent-[#1e463e]"
+              />
+              J’ai un contact pour cette candidature
+              <span className="font-normal text-[#1e463e]/50">(facultatif)</span>
+            </label>
+            {hasContact && (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <FormField label="Nom du contact" value={contactName} onChange={setContactName} />
+                <FormField label="E-mail du contact" type="email" value={contactEmail} onChange={setContactEmail} />
+                <FormField label="Téléphone du contact" type="tel" value={contactPhone} onChange={setContactPhone} />
+              </div>
+            )}
+          </section>
+
+          <footer className="flex justify-end gap-3">
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Annuler
+            </Button>
+            <Button type="submit" disabled={isSubmitting || !company.trim() || !role.trim()}>
+              {isSubmitting ? "Enregistrement..." : "Enregistrer"}
+            </Button>
+          </footer>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function ApplicationDetailsModal({
+  application,
+  onClose,
+}: {
+  application: Application
+  onClose: () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-[#1e463e]/70 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="application-details-title"
+        className="w-full max-w-2xl overflow-hidden rounded-3xl bg-[#f7f5f0] shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="flex items-center justify-between border-b border-[#1e463e]/10 bg-white px-8 py-6">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-[#d96c4a]">
+              Détail de la candidature
+            </p>
+            <h2
+              id="application-details-title"
+              className="mt-1 text-2xl font-bold text-[#1e463e]"
+            >
+              {application.company}
+            </h2>
+            <p className="text-sm text-[#1e463e]/70">{application.role}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xl text-[#1e463e]/50 transition-colors hover:text-[#d96c4a]"
+            aria-label="Fermer"
+          >
+            <X className="size-5" />
+          </button>
+        </header>
+
+        <div className="max-h-[75vh] space-y-6 overflow-y-auto p-8">
+          <section className="flex items-center justify-between rounded-2xl bg-white p-5 shadow-sm">
+            <div>
+              <p className="mb-1 text-xs font-bold uppercase tracking-wider text-[#1e463e]/50">
+                Statut actuel
+              </p>
+              <StatusBadge status={application.status} />
+            </div>
+            <div className="text-right">
+              <p className="mb-1 text-xs font-bold uppercase tracking-wider text-[#1e463e]/50">
+                Canal
+              </p>
+              <p className="font-semibold text-[#1e463e]">
+                {application.channel}
+              </p>
+            </div>
+          </section>
+
+          <section className="grid gap-4 sm:grid-cols-2">
+            <DetailCard label="Date de candidature">
+              {new Date(application.sentAt).toLocaleDateString("fr-FR")}
+            </DetailCard>
+            <DetailCard label="Ville">
+              {application.city || "Non renseignée"}
+            </DetailCard>
+            <DetailCard label="Date de relance">
+              {application.followupDue
+                ? new Date(application.followupDue).toLocaleDateString("fr-FR")
+                : "Aucune relance prévue"}
+            </DetailCard>
+            <DetailCard label="Lien de l’offre">
+              {application.jobUrl ? (
+                <a
+                  href={application.jobUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="break-all text-[#2b7a78] underline"
+                >
+                  Ouvrir l’offre
+                </a>
+              ) : (
+                "Aucun lien renseigné"
+              )}
+            </DetailCard>
+          </section>
+
+          <section className="space-y-3 rounded-2xl border border-[#1e463e]/10 bg-white p-5">
+            <h3 className="font-bold text-[#1e463e]">Contact</h3>
+            {application.contact &&
+            (application.contact.name ||
+              application.contact.email ||
+              application.contact.phone) ? (
+              <div className="space-y-2 text-sm text-[#1e463e]/75">
+                {application.contact.name && (
+                  <p>Nom : {application.contact.name}</p>
+                )}
+                {application.contact.email && (
+                  <p>
+                    E-mail :{" "}
+                    <a
+                      className="text-[#2b7a78] underline"
+                      href={`mailto:${application.contact.email}`}
+                    >
+                      {application.contact.email}
+                    </a>
+                  </p>
+                )}
+                {application.contact.phone && (
+                  <p>
+                    Téléphone :{" "}
+                    <a
+                      className="text-[#2b7a78] underline"
+                      href={`tel:${application.contact.phone}`}
+                    >
+                      {application.contact.phone}
+                    </a>
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-[#1e463e]/60">
+                Aucun contact renseigné.
+              </p>
+            )}
+          </section>
+
+          <section className="space-y-4 rounded-2xl border border-[#1e463e]/10 bg-white p-5">
+            <h3 className="flex items-center gap-2 font-bold text-[#1e463e]">
+              <Clock className="size-4 text-[#2b7a78]" />
+              Historique des échanges
+            </h3>
+            {application.timeline.length > 0 ? (
+              <ol className="relative space-y-5 border-l-2 border-[#8da399]/40 pl-6">
+                {application.timeline.map((entry, index) => (
+                  <li key={`${entry.date}-${index}`} className="relative">
+                    <span className="absolute -left-[33px] flex size-7 items-center justify-center rounded-full bg-[#f7f5f0] text-[#2b7a78] ring-2 ring-[#8da399]/40">
+                      <TimelineIcon type={entry.type} />
+                    </span>
+                    <div className="flex flex-wrap items-baseline gap-x-3">
+                      <p className="font-bold text-[#1e463e]">{entry.title}</p>
+                      <p className="text-xs text-[#1e463e]/55">
+                        {new Date(entry.date).toLocaleString("fr-FR")}
+                      </p>
+                    </div>
+                    {entry.note && (
+                      <p className="mt-1 text-sm text-[#1e463e]/70">
+                        {entry.note}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm text-[#1e463e]/60">
+                Aucun événement pour le moment.
+              </p>
+            )}
+          </section>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function FormField({
+  label,
+  value,
+  onChange,
+  type = "text",
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  type?: string
+}) {
+  return (
+    <label className="block text-sm font-bold text-[#1e463e]/80">
+      {label}
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 w-full rounded-xl border border-transparent bg-white px-4 py-3 font-normal shadow-sm outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
+      />
+    </label>
+  )
+}
+
+function StyledSelect({
+  value,
+  onChange,
+  options,
+  ariaLabel,
+  className,
+}: {
+  value: string
+  onChange: (value: string) => void
+  options: { value: string; label: string }[]
+  ariaLabel: string
+  className: string
+}) {
+  return (
+    <BaseSelect.Root
+      value={value}
+      onValueChange={(nextValue) => {
+        if (typeof nextValue === "string") onChange(nextValue)
+      }}
+      items={options}
+    >
+      <BaseSelect.Trigger
+        aria-label={ariaLabel}
+        className={`flex min-w-0 items-center justify-between gap-3 text-left text-[#1e463e] ${className}`}
+      >
+        <BaseSelect.Value />
+        <BaseSelect.Icon className="shrink-0 text-[#1e463e]/60">
+          <ChevronDown className="size-4" />
+        </BaseSelect.Icon>
+      </BaseSelect.Trigger>
+      <BaseSelect.Portal>
+        <BaseSelect.Positioner
+          side="bottom"
+          sideOffset={6}
+          alignItemWithTrigger={false}
+          collisionAvoidance={{
+            side: "shift",
+            align: "shift",
+            fallbackAxisSide: "none",
+          }}
+          className="z-[200] w-[var(--anchor-width)] outline-none"
+        >
+          <BaseSelect.Popup className="max-h-60 overflow-y-auto rounded-xl border border-[#eae5da] bg-white p-1.5 text-sm text-[#1e463e] shadow-[0_12px_30px_rgba(30,70,62,0.16)] outline-none">
+            <BaseSelect.List>
+              {options.map((option) => (
+                <BaseSelect.Item
+                  key={option.value}
+                  value={option.value}
+                  className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 outline-none transition-colors data-[highlighted]:bg-[#edf4f1] data-[selected]:font-semibold data-[selected]:text-[#1e463e]"
+                >
+                  <BaseSelect.ItemIndicator className="flex size-4 shrink-0 items-center justify-center text-[#2b7a78]">
+                    <Check className="size-4" />
+                  </BaseSelect.ItemIndicator>
+                  <BaseSelect.ItemText>{option.label}</BaseSelect.ItemText>
+                </BaseSelect.Item>
+              ))}
+            </BaseSelect.List>
+          </BaseSelect.Popup>
+        </BaseSelect.Positioner>
+      </BaseSelect.Portal>
+    </BaseSelect.Root>
+  )
+}
+
+function DetailCard({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="rounded-2xl border border-[#eae5da] bg-white p-4 shadow-sm">
+      <p className="text-xs font-bold uppercase tracking-wide text-[#1e463e]/50">
+        {label}
+      </p>
+      <p className="mt-1 font-semibold text-[#1e463e]">{children}</p>
     </div>
   )
 }
