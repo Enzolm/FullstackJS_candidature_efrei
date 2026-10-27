@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   ChartLine,
   Search,
@@ -29,6 +29,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { DashboardNavbar } from "@/components/DashboardNavbar"
 import { useAuth } from "@/hooks/auth/useAuth"
+
+const API_URL = `${(import.meta.env.VITE_API_URL ?? "http://localhost:3000").replace(/\/$/, "")}/api`
 
 /* ------------------------------------------------------------------ */
 /*                              Types                                 */
@@ -107,103 +109,52 @@ const CHANNEL_ICON: Record<
   Référence: Users,
 }
 
-/* ------------------------------------------------------------------ */
-/*                         Mock applications                          */
-/* ------------------------------------------------------------------ */
+type ApiApplication = {
+  _id: string
+  company: string
+  position: string
+  channel?: string
+  status: string
+  applicationDate: string
+  nextFollowUpDate?: string
+}
 
-const INITIAL_APPLICATIONS: Application[] = [
-  {
-    id: "1",
-    company: "Airbnb",
-    role: "UX/UI Designer",
-    sentAt: "2026-10-12",
-    status: "offer",
-    channel: "LinkedIn",
-    docs: { cv: true, lm: true },
+function mapApiApplication(application: ApiApplication): Application {
+  const status: Status =
+    application.status === "refusé"
+      ? "rejected"
+      : application.status === "entretien" ||
+          application.status === "entretien prévu"
+        ? "interview"
+        : application.status === "relance faite"
+          ? "followup"
+          : "applied"
+  const availableChannels = ["LinkedIn", "WTTJ", "Site", "Référence"] as const
+  const channel =
+    availableChannels.find((candidate) => candidate === application.channel) ??
+    "Site"
+  const sentAt = new Date(application.applicationDate)
+
+  return {
+    id: application._id,
+    company: application.company,
+    role: application.position,
+    sentAt: Number.isNaN(sentAt.getTime())
+      ? application.applicationDate
+      : sentAt.toISOString().slice(0, 10),
+    status,
+    channel,
+    docs: { cv: false, lm: false },
     timeline: [
-      { date: "2026-10-12", type: "email", title: "Candidature envoyée" },
-      { date: "2026-10-15", type: "call", title: "Call recruteur" },
       {
-        date: "2026-10-22",
+        date: application.applicationDate,
         type: "email",
-        title: "Offre reçue",
-        note: "Package attractif",
+        title: "Candidature enregistrée",
       },
     ],
-  },
-  {
-    id: "2",
-    company: "Google",
-    role: "Senior Product Designer",
-    sentAt: "2026-10-20",
-    status: "interview",
-    channel: "Référence",
-    docs: { cv: true, lm: false },
-    timeline: [
-      {
-        date: "2026-10-10",
-        type: "email",
-        title: "Candidature envoyée",
-        note: "Recommandation de Marc",
-      },
-      {
-        date: "2026-10-20",
-        type: "interview",
-        title: "Entretien RH",
-        note: "Demain 10h — préparer portfolio",
-      },
-    ],
-  },
-  {
-    id: "3",
-    company: "Patagonia",
-    role: "Digital Designer",
-    sentAt: "2026-10-22",
-    status: "applied",
-    channel: "Site",
-    docs: { cv: true, lm: true },
-    timeline: [
-      { date: "2026-10-22", type: "email", title: "Candidature envoyée" },
-    ],
-  },
-  {
-    id: "4",
-    company: "Doctolib",
-    role: "Développeur Fullstack JS",
-    sentAt: "2026-10-05",
-    status: "followup",
-    channel: "WTTJ",
-    docs: { cv: true, lm: true },
-    followupDue: "2026-10-18",
-    timeline: [
-      { date: "2026-10-05", type: "email", title: "Candidature envoyée" },
-      {
-        date: "2026-10-15",
-        type: "note",
-        title: "Pas de retour",
-        note: "Prévoir relance polie",
-      },
-    ],
-  },
-  {
-    id: "5",
-    company: "Canva",
-    role: "UI Engineer",
-    sentAt: "2026-09-15",
-    status: "rejected",
-    channel: "LinkedIn",
-    docs: { cv: true, lm: false },
-    timeline: [
-      { date: "2026-09-15", type: "email", title: "Candidature envoyée" },
-      {
-        date: "2026-10-01",
-        type: "email",
-        title: "Refus",
-        note: "Profil pas assez senior",
-      },
-    ],
-  },
-]
+    followupDue: application.nextFollowUpDate,
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /*                         Small components                           */
@@ -247,8 +198,9 @@ export function JobPulseDashboard() {
   const { user } = useAuth()
   const displayName =
     user?.profile?.firstName || user?.email.split("@")[0] || "Mon compte"
-  const [applications, setApplications] =
-    useState<Application[]>(INITIAL_APPLICATIONS)
+  const [applications, setApplications] = useState<Application[]>([])
+  const [isLoadingApplications, setIsLoadingApplications] = useState(true)
+  const [applicationsError, setApplicationsError] = useState("")
   const [activeNav, setActiveNav] = useState<string>("dashboard")
   const [query, setQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all")
@@ -258,6 +210,54 @@ export function JobPulseDashboard() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const loadApplications = async () => {
+      const token =
+        localStorage.getItem("token") ?? sessionStorage.getItem("token")
+
+      if (!token) {
+        setApplicationsError("Reconnecte-toi pour charger tes candidatures.")
+        setIsLoadingApplications(false)
+        return
+      }
+
+      try {
+        const response = await fetch(`${API_URL}/applications`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        })
+        const result = (await response.json()) as {
+          data?: ApiApplication[]
+          message?: string
+        }
+
+        if (!response.ok || !Array.isArray(result.data)) {
+          throw new Error(
+            result.message ?? "Impossible de charger les candidatures."
+          )
+        }
+
+        setApplications(result.data.map(mapApiApplication))
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return
+        setApplicationsError(
+          error instanceof Error
+            ? error.message
+            : "Impossible de charger les candidatures."
+        )
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoadingApplications(false)
+        }
+      }
+    }
+
+    void loadApplications()
+    return () => controller.abort()
+  }, [])
 
   const filtered = useMemo(() => {
     return applications.filter((app) => {
@@ -295,20 +295,53 @@ export function JobPulseDashboard() {
     [applications]
   )
 
-  const handleCreate = (
-    payload: Omit<Application, "id" | "timeline" | "docs"> & {
+  const handleCreate = async (
+    payload: Omit<Application, "id" | "timeline" | "docs" | "status"> & {
       docs: Application["docs"]
     }
   ) => {
-    const newApp: Application = {
-      ...payload,
-      id: String(Date.now()),
-      timeline: [
-        { date: payload.sentAt, type: "email", title: "Candidature envoyée" },
-      ],
+    const dataToSend = {
+      company: payload.company,
+      position: payload.role,
+      applicationDate: payload.sentAt,
+      channel: payload.channel,
+      nextFollowUpDate: payload.followupDue,
+      status: "postulé",
     }
+    const token =
+      localStorage.getItem("token") ?? sessionStorage.getItem("token")
+
+    if (!token) {
+      throw new Error("Reconnecte-toi pour enregistrer une candidature.")
+    }
+
+    const response = await fetch(`${API_URL}/applications`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(dataToSend),
+    })
+
+    const result = (await response.json()) as {
+      data?: ApiApplication
+      message?: string
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        result.message ??
+          `Le serveur a refusé la candidature (${response.status}).`
+      )
+    }
+
+    if (!result.data) {
+      throw new Error("Le serveur n’a pas renvoyé la candidature enregistrée.")
+    }
+
+    const newApp = mapApiApplication(result.data)
     setApplications((prev) => [newApp, ...prev])
-    setIsModalOpen(false)
   }
 
   const handleDelete = (id: string) => {
@@ -430,11 +463,30 @@ export function JobPulseDashboard() {
               <div className="col-span-2 text-right">Actions</div>
             </div>
 
-            {filtered.length === 0 && (
+            {isLoadingApplications && (
               <div className="rounded-2xl bg-white p-10 text-center text-sm text-[#1e463e]/60 shadow-[0_4px_15px_rgba(30,70,62,0.04)]">
-                Aucune candidature ne correspond aux filtres.
+                Chargement des candidatures...
               </div>
             )}
+
+            {applicationsError && (
+              <div
+                role="alert"
+                className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"
+              >
+                {applicationsError}
+              </div>
+            )}
+
+            {!isLoadingApplications &&
+              !applicationsError &&
+              filtered.length === 0 && (
+                <div className="rounded-2xl bg-white p-10 text-center text-sm text-[#1e463e]/60 shadow-[0_4px_15px_rgba(30,70,62,0.04)]">
+                  {applications.length === 0
+                    ? "Aucune candidature enregistrée pour le moment."
+                    : "Aucune candidature ne correspond aux filtres."}
+                </div>
+              )}
 
             <ul className="flex flex-col gap-4">
               {filtered.map((app) => {
@@ -727,34 +779,51 @@ function ApplicationModal({
   onSubmit,
 }: {
   onClose: () => void
-  onSubmit: (data: Omit<Application, "id" | "timeline">) => void
+  onSubmit: (
+    data: Omit<Application, "id" | "timeline" | "status">
+  ) => Promise<void>
 }) {
   const [company, setCompany] = useState("")
   const [role, setRole] = useState("")
   const [channel, setChannel] = useState<Application["channel"]>("LinkedIn")
-  const [status, setStatus] = useState<Status>("applied")
   const [sentAt, setSentAt] = useState(new Date().toISOString().slice(0, 10))
   const [followupDue, setFollowupDue] = useState("")
   const [cv, setCv] = useState(true)
   const [lm, setLm] = useState(false)
   const [toast, setToast] = useState(false)
+  const [submitError, setSubmitError] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const canSubmit = company.trim() && role.trim()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!canSubmit) return
-    onSubmit({
-      company: company.trim(),
-      role: role.trim(),
-      channel,
-      status,
-      sentAt,
-      followupDue: followupDue || undefined,
-      docs: { cv, lm },
-    })
+    setSubmitError("")
+    setIsSubmitting(true)
+
+    try {
+      await onSubmit({
+        company: company.trim(),
+        role: role.trim(),
+        channel,
+        sentAt,
+        followupDue: followupDue || undefined,
+        docs: { cv, lm },
+      })
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : "Impossible d’enregistrer."
+      )
+      return
+    } finally {
+      setIsSubmitting(false)
+    }
     setToast(true)
-    setTimeout(() => setToast(false), 2500)
+    window.setTimeout(() => {
+      setToast(false)
+      onClose()
+    }, 1200)
   }
 
   return (
@@ -780,6 +849,11 @@ function ApplicationModal({
 
         {/* Body */}
         <form onSubmit={handleSubmit} className="space-y-6 p-8">
+          {submitError && (
+            <p role="alert" className="text-sm text-red-700">
+              {submitError}
+            </p>
+          )}
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div>
               <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
@@ -808,20 +882,12 @@ function ApplicationModal({
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
-                Status
-              </label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as Status)}
-                className="w-full cursor-pointer appearance-none rounded-xl border border-transparent bg-white px-4 py-3 shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
-              >
-                {Object.entries(STATUS_META).map(([key, meta]) => (
-                  <option key={key} value={key}>
-                    {meta.label}
-                  </option>
-                ))}
-              </select>
+              <span className="mb-2 block text-sm font-bold text-[#1e463e]/80">
+                Status at creation
+              </span>
+              <p className="rounded-xl bg-white px-4 py-3 text-sm text-[#1e463e]/70 shadow-sm">
+                Postulé
+              </p>
             </div>
             <div>
               <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
@@ -925,10 +991,10 @@ function ApplicationModal({
             </Button>
             <Button
               type="submit"
-              disabled={!canSubmit}
+              disabled={!canSubmit || isSubmitting}
               className="rounded-xl bg-[#1e463e] px-8 py-3 font-bold text-[#f7f5f0] shadow-[0_8px_30px_rgba(30,70,62,0.08)] hover:bg-[#15332d]"
             >
-              Save Application
+              {isSubmitting ? "Enregistrement..." : "Save Application"}
             </Button>
           </div>
         </form>
