@@ -11,6 +11,8 @@ import {
   User,
 } from "lucide-react"
 import { Link } from "react-router"
+import { useNavigate } from "react-router"
+import { useAuth } from "@/hooks/auth/useAuth"
 
 export type RegisterPayload = {
   firstName: string
@@ -24,10 +26,7 @@ type RegisterPageProps = {
   onNavigateToLogin?: () => void
 }
 
-export function RegisterPage({
-  onRegister,
-  onNavigateToLogin,
-}: RegisterPageProps) {
+export function RegisterPage({ onRegister }: RegisterPageProps) {
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -40,7 +39,8 @@ export function RegisterPage({
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [error, setError] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
+  const { register, isLoading, error: authError } = useAuth()
+  const navigate = useNavigate()
 
   const updateField = (
     field: keyof typeof formData,
@@ -50,7 +50,7 @@ export function RegisterPage({
     if (error) setError("")
   }
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (formData.password !== formData.confirmPassword) {
       setError("Les mots de passe ne correspondent pas.")
@@ -65,16 +65,20 @@ export function RegisterPage({
       return
     }
 
-    setIsLoading(true)
-    window.setTimeout(() => {
-      setIsLoading(false)
-      onRegister?.({
-        firstName: formData.firstName.trim(),
-        lastName: formData.lastName.trim(),
-        email: formData.email.trim(),
-        targetRole: formData.targetRole.trim(),
-      })
-    }, 1200)
+    await register({
+      email: formData.email.trim(),
+      password: formData.password,
+      firstName: formData.firstName.trim(),
+      lastName: formData.lastName.trim(),
+      targetRole: formData.targetRole.trim(),
+    })
+    onRegister?.({
+      firstName: formData.firstName.trim(),
+      lastName: formData.lastName.trim(),
+      email: formData.email.trim(),
+      targetRole: formData.targetRole.trim(),
+    })
+    navigate("/")
   }
 
   return (
@@ -96,10 +100,10 @@ export function RegisterPage({
         </header>
 
         <section className="space-y-5 rounded-2xl border border-[#ddd8ce] bg-[#fcfaf7] p-6 shadow-sm sm:p-8">
-          {error && (
+          {(error || authError) && (
             <div className="flex items-center gap-2.5 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-700">
               <AlertCircle className="size-4 shrink-0 text-rose-600" />
-              <span>{error}</span>
+              <span>{error || authError}</span>
             </div>
           )}
 

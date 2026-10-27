@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 // 1. On importe notre fichier de routes qu'on vient de créer
 import applicationRoutes from "./routes/applicationRoutes.js";
+import jobRoutes from "./routes/jobRoutes.js";
 
 const app = express();
 
@@ -16,5 +17,6 @@ app.get("/api/health", (req, res) => {
 
 // 2. On branche toutes nos routes de candidatures sous le préfixe "/api/applications"
 app.use("/api/applications", applicationRoutes);
+app.use("/api/jobs", jobRoutes);
 
 export default app;

@@ -20,8 +20,12 @@ const userSchema = new mongoose.Schema(
 		},
 		// Le profil détaillé rempli lors du questionnaire post-inscription
 		profile: {
+			firstName: { type: String, trim: true },
+			lastName: { type: String, trim: true },
 			educationLevel: { type: String }, // Ex: "Bac+5"
 			currentDegree: { type: String }, // Ex: "Mastère Dev Manager Full Stack"
+			exactDegreeTitle: { type: String, trim: true },
+			school: { type: String, trim: true },
 			searchDomain: { type: String }, // Ex: "Développement Full-Stack" (pour le scraping)
 			contractType: { type: String }, // Ex: "Alternance", "Stage", "CDI"
 			contractDuration: { type: String }, // Ex: "12 à 24 mois"

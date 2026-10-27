@@ -1,6 +1,15 @@
 import { useState } from "react"
-import { ArrowRight, Eye, EyeOff, Lock, Mail, ShieldCheck } from "lucide-react"
-import { Link } from "react-router"
+import {
+  AlertCircle,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Lock,
+  Mail,
+  ShieldCheck,
+} from "lucide-react"
+import { Link, useNavigate } from "react-router"
+import { useAuth } from "@/hooks/auth/useAuth"
 
 export type LoginPayload = {
   email: string
@@ -12,21 +21,19 @@ type LoginPageProps = {
   onNavigateToRegister?: () => void
 }
 
-export function LoginPage({ onLogin, onNavigateToRegister }: LoginPageProps) {
+export function LoginPage({ onLogin }: LoginPageProps) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
+  const { login, isLoading, error: authError } = useAuth()
+  const navigate = useNavigate()
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    setIsLoading(true)
-
-    window.setTimeout(() => {
-      setIsLoading(false)
-      onLogin?.({ email: email.trim(), rememberMe })
-    }, 1000)
+    await login({ email: email.trim(), password }, rememberMe)
+    onLogin?.({ email: email.trim(), rememberMe })
+    navigate("/")
   }
 
   return (
@@ -49,6 +56,12 @@ export function LoginPage({ onLogin, onNavigateToRegister }: LoginPageProps) {
         </header>
 
         <section className="space-y-6 rounded-2xl border border-[#ddd8ce] bg-[#fcfaf7] p-6 shadow-sm sm:p-8">
+          {authError && (
+            <div className="flex items-center gap-2.5 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-700">
+              <AlertCircle className="size-4 shrink-0 text-rose-600" />
+              <span>{authError}</span>
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <label
@@ -80,12 +93,12 @@ export function LoginPage({ onLogin, onNavigateToRegister }: LoginPageProps) {
                 >
                   Mot de passe
                 </label>
-                <a
-                  href="#forgot-password"
+                <Link
+                  to="/forgot-password"
                   className="text-xs font-semibold text-[#d96c4a] hover:underline"
                 >
                   Oublié ?
-                </a>
+                </Link>
               </div>
               <div className="relative">
                 <Lock className="absolute top-1/2 left-3.5 size-5 -translate-y-1/2 text-[#8b9b95]" />

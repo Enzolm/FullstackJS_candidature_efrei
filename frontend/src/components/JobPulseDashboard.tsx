@@ -1,10 +1,6 @@
 import { useMemo, useState } from "react"
 import {
-  LayoutDashboard,
-  Briefcase,
-  FolderOpen,
   ChartLine,
-  Settings,
   Search,
   Plus,
   ChevronDown,
@@ -22,8 +18,6 @@ import {
   AlertTriangle,
   CalendarCheck,
   TrendingUp,
-  LogOut,
-  Sprout,
   X,
   Paperclip,
   Filter,
@@ -33,6 +27,8 @@ import {
   CheckCircle2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { DashboardNavbar } from "@/components/DashboardNavbar"
+import { useAuth } from "@/hooks/auth/useAuth"
 
 /* ------------------------------------------------------------------ */
 /*                              Types                                 */
@@ -209,13 +205,6 @@ const INITIAL_APPLICATIONS: Application[] = [
   },
 ]
 
-const NAV_ITEMS = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { key: "applications", label: "Applications", icon: Briefcase },
-  { key: "documents", label: "Documents", icon: FolderOpen },
-  { key: "analytics", label: "Analytics", icon: ChartLine },
-] as const
-
 /* ------------------------------------------------------------------ */
 /*                         Small components                           */
 /* ------------------------------------------------------------------ */
@@ -255,6 +244,9 @@ function CompanyAvatar({ name }: { name: string }) {
 /* ------------------------------------------------------------------ */
 
 export function JobPulseDashboard() {
+  const { user } = useAuth()
+  const displayName =
+    user?.profile?.firstName || user?.email.split("@")[0] || "Mon compte"
   const [applications, setApplications] =
     useState<Application[]>(INITIAL_APPLICATIONS)
   const [activeNav, setActiveNav] = useState<string>("dashboard")
@@ -326,91 +318,12 @@ export function JobPulseDashboard() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#f7f5f0] font-sans text-[#1e463e] antialiased">
-      {/* ===== Mobile top bar ===== */}
-      <div className="fixed top-0 right-0 left-0 z-50 flex h-16 items-center justify-between bg-[#1e463e] px-4 text-[#f7f5f0] shadow-md lg:hidden">
-        <div className="flex items-center gap-2 text-xl font-bold">
-          <Sprout className="size-6 text-[#8da399]" />
-          <span>TrackMyApply</span>
-        </div>
-        <button
-          onClick={() => setIsSidebarOpen((o) => !o)}
-          className="text-2xl"
-          aria-label="Menu"
-        >
-          <LayoutDashboard className="size-6" />
-        </button>
-      </div>
-
-      {/* ===== Sidebar ===== */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 transform flex-col bg-[#1e463e] pt-16 text-[#f7f5f0] transition-transform duration-300 lg:relative lg:translate-x-0 lg:pt-0 ${
-          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        {/* Logo (desktop) */}
-        <div className="hidden h-20 items-center gap-3 border-b border-[#15332d]/40 px-8 text-2xl font-bold lg:flex">
-          <Sprout className="size-7 text-[#8da399]" />
-          <span>TrackMyApply</span>
-        </div>
-
-        {/* Nav */}
-        <nav className="flex flex-1 flex-col gap-2 px-4 py-8">
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon
-            const active = activeNav === item.key
-            return (
-              <button
-                key={item.key}
-                onClick={() => {
-                  setActiveNav(item.key)
-                  setIsSidebarOpen(false)
-                }}
-                className={`flex items-center gap-4 rounded-2xl px-4 py-3 text-left transition-all ${
-                  active
-                    ? "bg-[#15332d] text-white"
-                    : "text-[#f7f5f0]/70 hover:bg-[#15332d] hover:text-white"
-                }`}
-              >
-                <Icon className="size-5 shrink-0" />
-                <span className="font-medium">{item.label}</span>
-              </button>
-            )
-          })}
-
-          <button
-            onClick={() => setActiveNav("settings")}
-            className={`mt-auto flex items-center gap-4 rounded-2xl px-4 py-3 text-left transition-all ${
-              activeNav === "settings"
-                ? "bg-[#15332d] text-white"
-                : "text-[#f7f5f0]/70 hover:bg-[#15332d] hover:text-white"
-            }`}
-          >
-            <Settings className="size-5 shrink-0" />
-            <span className="font-medium">Settings</span>
-          </button>
-        </nav>
-
-        {/* Profile */}
-        <div className="border-t border-[#15332d]/40 p-4">
-          <div className="flex items-center gap-3 px-4 py-2">
-            <div className="flex size-10 items-center justify-center rounded-full border-2 border-[#8da399] bg-[#d96c4a] text-sm font-bold text-white">
-              E
-            </div>
-            <div className="flex flex-1 flex-col">
-              <span className="text-sm font-bold text-white">Mon Compte</span>
-              <span className="text-xs text-[#f7f5f0]/60">
-                Fullstack Developer
-              </span>
-            </div>
-            <button
-              className="text-[#f7f5f0]/60 hover:text-[#d96c4a]"
-              aria-label="Déconnexion"
-            >
-              <LogOut className="size-4" />
-            </button>
-          </div>
-        </div>
-      </aside>
+      <DashboardNavbar
+        activeNav={activeNav}
+        onActiveNavChange={setActiveNav}
+        isSidebarOpen={isSidebarOpen}
+        onSidebarOpenChange={setIsSidebarOpen}
+      />
 
       {/* Overlay */}
       {isSidebarOpen && (
@@ -429,7 +342,7 @@ export function JobPulseDashboard() {
             <div>
               <h1 className="mb-1 text-3xl font-bold">My Job Dashboard</h1>
               <p className="font-medium text-[#1e463e]/70">
-                Welcome back, Marc. You have{" "}
+                Welcome back, {displayName}. You have{" "}
                 <span className="font-bold text-[#d96c4a]">
                   {followups.length} follow-up{followups.length > 1 ? "s" : ""}
                 </span>{" "}
