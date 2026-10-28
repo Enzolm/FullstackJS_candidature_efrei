@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 import { useNavigate } from "react-router"
 import { useAuth } from "@/hooks/auth/useAuth"
+import { ExtensionDownload } from "@/components/ExtensionDownload"
 
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/" },
@@ -108,18 +109,21 @@ export function DashboardNavbar({
             )
           })}
 
-          <button
-            onClick={() => navigate("/settings")}
-            className={`mt-auto flex items-center gap-4 rounded-2xl px-4 py-3 text-left transition-all ${
-              activeNav === "settings"
-                ? "bg-[#15332d] text-white"
-                : "text-[#f7f5f0]/70 hover:bg-[#15332d] hover:text-white"
-            }`}
-            type="button"
-          >
-            <Settings className="size-5 shrink-0" />
-            <span className="font-medium">Settings</span>
-          </button>
+          <div className="mt-auto flex flex-col gap-2 border-t border-[#8da399]/20 pt-4">
+            <ExtensionDownload compact />
+            <button
+              onClick={() => navigate("/settings")}
+              className={`flex items-center gap-4 rounded-2xl px-4 py-3 text-left transition-all ${
+                activeNav === "settings"
+                  ? "bg-[#15332d] text-white"
+                  : "text-[#f7f5f0]/70 hover:bg-[#15332d] hover:text-white"
+              }`}
+              type="button"
+            >
+              <Settings className="size-5 shrink-0" />
+              <span className="font-medium">Settings</span>
+            </button>
+          </div>
         </nav>
 
         <div className="border-t border-[#15332d]/40 p-4">

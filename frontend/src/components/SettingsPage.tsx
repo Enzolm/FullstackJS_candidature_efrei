@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { AlertCircle, Check, Lock, MapPin, Pencil, Save, X } from "lucide-react"
 import { useAuth, type OnboardingProfile } from "@/hooks/auth/useAuth"
 import { DashboardNavbar } from "@/components/DashboardNavbar"
+import { ExtensionDownload } from "@/components/ExtensionDownload"
 
 const API_URL = `${(import.meta.env.VITE_API_URL ?? "http://localhost:3000").replace(/\/$/, "")}/api`
 const LEVELS = ["Bac", "Bac+1", "Bac+2", "Bac+3", "Bac+4", "Bac+5", "Doctorat"]
@@ -156,6 +157,18 @@ export function SettingsPage() {
       {isSidebarOpen && <div onClick={() => setIsSidebarOpen(false)} className="fixed inset-0 z-30 bg-[#1e463e]/50 backdrop-blur-sm lg:hidden" />}
       <main className="flex flex-1 flex-col overflow-y-auto pt-16 lg:pt-0">
         <div className="max-w-4xl p-6 lg:p-10">
+          <section className="mb-6 rounded-2xl border border-[#d9e7df] bg-[#edf4f0] p-5">
+            <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+              <div>
+                <h2 className="text-lg font-semibold text-[#1e463e]">Extension TrackMyApply</h2>
+                <p className="mt-1 text-sm text-[#5f716b]">
+                  Télécharge l’extension pour enregistrer tes candidatures depuis Indeed.
+                </p>
+              </div>
+              <ExtensionDownload />
+            </div>
+          </section>
+
           <header className="mb-8">
             <h1 className="text-3xl font-bold">Paramètres</h1>
             <p className="mt-1 text-sm text-[#1e463e]/65">Consulte et modifie les informations de ton profil.</p>

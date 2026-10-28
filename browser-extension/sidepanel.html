@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TrackMyApply</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="brand">
+          <div class="brand-mark">✦</div>
+          <div>
+            <p class="eyebrow">TrackMyApply</p>
+            <h1>Mes documents</h1>
+          </div>
+        </div>
+        <button id="refresh" class="icon-button" title="Actualiser" aria-label="Actualiser">↻</button>
+      </header>
+
+      <section id="login-view" class="card">
+        <div class="section-icon">↗</div>
+        <h2>Retrouve tes documents</h2>
+        <p>Connecte-toi à TrackMyApply dans un onglet pour synchroniser automatiquement ton espace.</p>
+        <button id="connect-site" class="primary" type="button">Synchroniser mon espace</button>
+        <button id="open-site" class="secondary full-button" type="button">Ouvrir TrackMyApply</button>
+      </section>
+
+      <section id="documents-view" hidden>
+        <div class="toolbar">
+          <input id="search" type="search" placeholder="Rechercher un document..." />
+          <button id="logout" class="secondary" type="button">Déconnexion</button>
+        </div>
+        <section id="indeed-preview" class="indeed-preview">
+          <div class="preview-header">
+            <p class="preview-label">Offre détectée</p>
+            <button id="refresh-indeed" class="preview-refresh" type="button">
+              Rafraîchir
+            </button>
+          </div>
+          <p id="preview-empty">Aucune offre Indeed détectée dans l’onglet actif.</p>
+          <div id="preview-details" hidden>
+            <p><strong>Poste :</strong> <span id="preview-position"></span></p>
+            <p><strong>Entreprise :</strong> <span id="preview-company"></span></p>
+            <button id="save-indeed" class="primary full-button" type="button" hidden>
+              J’ai postulé à cette offre Indeed
+            </button>
+          </div>
+        </section>
+        <p id="status" class="status"></p>
+        <div id="documents" class="documents"></div>
+      </section>
+    </main>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
