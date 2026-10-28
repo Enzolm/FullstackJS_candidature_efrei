@@ -53,7 +53,7 @@ type TimelineEntry = {
   note?: string
 }
 
-type Application = {
+export type Application = {
   id: string
   company: string
   role: string
@@ -153,7 +153,7 @@ type ApiApplication = {
   }[]
 }
 
-const API_STATUS_BY_UI_STATUS: Record<Status, string> = {
+export const API_STATUS_BY_UI_STATUS: Record<Status, string> = {
   applied: "postulé",
   pending: "en attente",
   interview: "entretien prévu",
@@ -1291,12 +1291,14 @@ function ApplicationModal({
   )
 }
 
-function EditApplicationModal({
+export function EditApplicationModal({
   application,
+  heading = "Modifier le dossier",
   onClose,
   onSubmit,
 }: {
   application: Application
+  heading?: string
   onClose: () => void
   onSubmit: (
     updates: Omit<Application, "id" | "timeline">
@@ -1373,7 +1375,7 @@ function EditApplicationModal({
         <header className="flex items-center justify-between border-b border-[#1e463e]/10 bg-white px-8 py-6">
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-[#d96c4a]">
-              Modifier le dossier
+              {heading}
             </p>
             <h2
               id="edit-application-title"
