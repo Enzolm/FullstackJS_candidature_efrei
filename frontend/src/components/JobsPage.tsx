@@ -8,6 +8,11 @@ import {
   Search,
 } from "lucide-react"
 import { DashboardNavbar } from "@/components/DashboardNavbar"
+import {
+  API_STATUS_BY_UI_STATUS,
+  EditApplicationModal,
+  type Application,
+} from "@/components/JobPulseDashboard"
 
 const API_URL = `${(import.meta.env.VITE_API_URL ?? "http://localhost:3000").replace(/\/$/, "")}/api`
 
@@ -20,15 +25,33 @@ type Job = {
   category: string
 }
 
+// Candidature préremplie à partir de l'offre, à personnaliser dans le formulaire
+function getJobDraft(job: Job): Application {
+  // Le titre du flux a la forme "Entreprise: Poste"
+  const separatorIndex = job.title.indexOf(": ")
+  const hasCompany = separatorIndex > 0
+
+  return {
+    id: "",
+    company: hasCompany ? job.title.slice(0, separatorIndex) : "Non précisée",
+    role: hasCompany ? job.title.slice(separatorIndex + 2) : job.title,
+    jobUrl: job.link,
+    channel: "Site",
+    status: "applied",
+    sentAt: new Date().toISOString().slice(0, 10),
+    docs: { cv: true, lm: false },
+    timeline: [],
+  }
+}
+
 export function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [query, setQuery] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState("")
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const [addingJobId, setAddingJobId] = useState<string | null>(null)
+  const [jobToAdd, setJobToAdd] = useState<Job | null>(null)
   const [addedJobLinks, setAddedJobLinks] = useState<string[]>([])
-  const [addError, setAddError] = useState("")
 
   useEffect(() => {
     const loadJobs = async () => {
@@ -106,56 +129,47 @@ export function JobsPage() {
     )
   }, [jobs, query])
 
-  const handleAddToDashboard = async (job: Job) => {
-    // Le titre du flux a la forme "Entreprise: Poste"
-    const separatorIndex = job.title.indexOf(": ")
-    const hasCompany = separatorIndex > 0
+  const handleAddToDashboard = async (
+    job: Job,
+    updates: Omit<Application, "id" | "timeline">
+  ) => {
     const dataToSend = {
-      company: hasCompany ? job.title.slice(0, separatorIndex) : "Non précisée",
-      position: hasCompany ? job.title.slice(separatorIndex + 2) : job.title,
-      jobUrl: job.link,
-      channel: "Site",
-      status: "postulé",
+      company: updates.company,
+      position: updates.role,
+      city: updates.city,
+      jobUrl: updates.jobUrl,
+      contact: updates.contact,
+      applicationDate: updates.sentAt,
+      channel: updates.channel,
+      nextFollowUpDate: updates.followupDue,
+      status: API_STATUS_BY_UI_STATUS[updates.status],
     }
     const token =
       localStorage.getItem("token") ?? sessionStorage.getItem("token")
 
     if (!token) {
-      setAddError("Reconnecte-toi pour ajouter une offre.")
-      return
+      throw new Error("Reconnecte-toi pour ajouter une offre.")
     }
 
-    setAddError("")
-    setAddingJobId(job.id)
+    const response = await fetch(`${API_URL}/applications`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(dataToSend),
+    })
+    const result = (await response.json()) as { message?: string }
 
-    try {
-      const response = await fetch(`${API_URL}/applications`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(dataToSend),
-      })
-      const result = (await response.json()) as { message?: string }
-
-      if (!response.ok) {
-        throw new Error(
-          result.message ??
-            `Le serveur a refusé la candidature (${response.status}).`
-        )
-      }
-
-      setAddedJobLinks((previous) => [...previous, job.link])
-    } catch (requestError) {
-      setAddError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Impossible d'ajouter l'offre."
+    if (!response.ok) {
+      throw new Error(
+        result.message ??
+          `Le serveur a refusé la candidature (${response.status}).`
       )
-    } finally {
-      setAddingJobId(null)
     }
+
+    setAddedJobLinks((previous) => [...previous, job.link])
+    setJobToAdd(null)
   }
 
   return (
@@ -210,13 +224,6 @@ export function JobsPage() {
             </div>
           )}
 
-          {addError && (
-            <div className="mb-5 flex max-w-2xl items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-              <AlertCircle className="size-5 shrink-0" />
-              {addError}
-            </div>
-          )}
-
           {!isLoading && !error && filteredJobs.length === 0 && (
             <p className="text-sm text-[#1e463e]/65">Aucune offre trouvée.</p>
           )}
@@ -239,11 +246,8 @@ export function JobsPage() {
                   <div className="flex shrink-0 gap-2">
                     <button
                       type="button"
-                      onClick={() => void handleAddToDashboard(job)}
-                      disabled={
-                        addingJobId === job.id ||
-                        addedJobLinks.includes(job.link)
-                      }
+                      onClick={() => setJobToAdd(job)}
+                      disabled={addedJobLinks.includes(job.link)}
                       className="rounded-xl bg-[#2b7a78] p-2.5 text-white hover:bg-[#1f5c5a] disabled:cursor-not-allowed disabled:bg-[#8b9b95] disabled:opacity-60"
                       aria-label={
                         addedJobLinks.includes(job.link)
@@ -251,9 +255,7 @@ export function JobsPage() {
                           : `Ajouter l'offre ${job.title} au dashboard`
                       }
                     >
-                      {addingJobId === job.id ? (
-                        <LoaderCircle className="size-4 animate-spin" />
-                      ) : addedJobLinks.includes(job.link) ? (
+                      {addedJobLinks.includes(job.link) ? (
                         <Check className="size-4" />
                       ) : (
                         <Plus className="size-4" />
@@ -278,6 +280,15 @@ export function JobsPage() {
           </div>
         </div>
       </main>
+
+      {jobToAdd && (
+        <EditApplicationModal
+          application={getJobDraft(jobToAdd)}
+          heading="Ajouter au dashboard"
+          onClose={() => setJobToAdd(null)}
+          onSubmit={(updates) => handleAddToDashboard(jobToAdd, updates)}
+        />
+      )}
     </div>
   )
 }
