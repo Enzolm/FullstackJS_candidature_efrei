@@ -82,6 +82,30 @@
     return "";
   }
 
+  function findIndeedLocation() {
+    const preferredLocation = textFromSelectors([
+      "[data-testid='job-location']",
+      "[data-testid='jobsearch-JobInfoHeader-subtitle']",
+      "#jobLocationText",
+      ".jobsearch-JobInfoHeader-subtitle",
+    ]);
+    if (preferredLocation) return preferredLocation;
+
+    const metadata = document.querySelector(
+      "[data-testid='company-info-metadata']",
+    );
+    if (!metadata) return "";
+
+    const candidates = [...metadata.querySelectorAll("div")].map((element) =>
+      element.textContent?.trim().replace(/\s+/g, " ") || "",
+    );
+    return (
+      candidates
+        .filter((value) => /^\d{5}\s+\S+/.test(value))
+        .sort((left, right) => left.length - right.length)[0] || ""
+    );
+  }
+
   function extractIndeedOffer() {
     const position =
       textFromSelectors([
@@ -103,13 +127,7 @@
       "[data-testid='companyName']",
       ".jobsearch-JobInfoHeader-companyName",
     ]);
-    const location = textFromSelectors([
-      "[data-testid='company-info-metadata'] > div:nth-child(1) > div:nth-last-child(1)",
-      "[data-testid='job-location']",
-      "[data-testid='jobsearch-JobInfoHeader-subtitle']",
-      "#jobLocationText",
-      ".jobsearch-JobInfoHeader-subtitle",
-    ]);
+    const location = findIndeedLocation();
     const offerDetails = textFromSelectors([
       "[data-testid='company-info-metadata'] > div:nth-child(2)",
     ]);

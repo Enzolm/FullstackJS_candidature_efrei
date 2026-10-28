@@ -71,8 +71,11 @@ export function SettingsPage() {
             },
           }
         )
-        if (!response.ok) throw new Error("Impossible de rechercher cette adresse.")
-        const result = (await response.json()) as {
+        const errorResult = (await response.json().catch(() => null)) as { message?: string } | null
+        if (!response.ok) {
+          throw new Error(errorResult?.message ?? "Impossible de rechercher cette adresse.")
+        }
+        const result = errorResult as {
           features?: {
             properties: { label: string; postcode?: string; city?: string }
             geometry: { coordinates: [number, number] }
@@ -87,6 +90,9 @@ export function SettingsPage() {
             latitude: feature.geometry.coordinates[1],
           }))
         )
+        if ((result.features ?? []).length === 0) {
+          setFormError("Aucune adresse trouvée. Vérifie la saisie.")
+        }
       } catch (requestError) {
         if (!(requestError instanceof DOMException && requestError.name === "AbortError")) {
           setFormError(
@@ -206,6 +212,7 @@ export function SettingsPage() {
                     value={addressQuery}
                     onChange={(event) => {
                       setAddressQuery(event.target.value)
+                      setFormError("")
                       setProfile((current) => ({ ...current, homeAddress: undefined }))
                     }}
                     placeholder="Commence à saisir ton adresse..."
@@ -213,11 +220,11 @@ export function SettingsPage() {
                     className="rounded-xl border border-[#ddd8ce] bg-white px-3 py-2.5 font-normal outline-none transition focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20 disabled:cursor-not-allowed disabled:bg-[#f1eee8]"
                   />
                 </label>
-                {isEditingProfile && (isAddressLoading || addressSuggestions.length > 0) && (
+                {isEditingProfile && addressQuery.trim().length >= 3 && (
                   <div className="absolute right-0 left-0 top-full z-10 mt-1 overflow-hidden rounded-xl border border-[#ddd8ce] bg-white shadow-lg">
                     {isAddressLoading ? (
                       <p className="px-3 py-2 text-sm text-[#6b7c77]">Recherche des adresses...</p>
-                    ) : (
+                    ) : addressSuggestions.length > 0 ? (
                       addressSuggestions.map((address) => (
                         <button
                           key={`${address.label}-${address.latitude}`}
@@ -228,6 +235,10 @@ export function SettingsPage() {
                           {address.label}
                         </button>
                       ))
+                    ) : (
+                      <p className="px-3 py-2 text-sm text-[#6b7c77]">
+                        Aucune adresse trouvée. Essaie avec une rue, un code postal ou une ville.
+                      </p>
                     )}
                   </div>
                 )}

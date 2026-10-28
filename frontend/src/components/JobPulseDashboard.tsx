@@ -354,9 +354,12 @@ function AddressAutocomplete({
 }) {
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState("")
 
   useEffect(() => {
     if (value.trim().length < 3) {
+      setErrorMessage("")
+      setSuggestions([])
       return
     }
 
@@ -364,9 +367,13 @@ function AddressAutocomplete({
     const timeoutId = window.setTimeout(async () => {
       const token =
         localStorage.getItem("token") ?? sessionStorage.getItem("token")
-      if (!token) return
+      if (!token) {
+        setErrorMessage("Reconnecte-toi pour utiliser la recherche d’adresse.")
+        return
+      }
 
       setIsLoading(true)
+      setErrorMessage("")
       try {
         const response = await fetch(
           `${API_URL}/addresses/search?q=${encodeURIComponent(value)}`,
@@ -375,22 +382,35 @@ function AddressAutocomplete({
             headers: { Authorization: `Bearer ${token}` },
           }
         )
-        const result = (await response.json()) as {
-          features?: {
-            properties: { label: string; city?: string }
-          }[]
+        const payload = (await response.json().catch(() => null)) as
+          | {
+              features?: { properties: { label: string; city?: string } }[]
+              message?: string
+            }
+          | null
+        if (!response.ok) {
+          throw new Error(
+            payload?.message ??
+              `Recherche d’adresse indisponible (${response.status}).`
+          )
         }
-        if (!response.ok) throw new Error("Recherche d’adresse indisponible.")
         setSuggestions(
-          (result.features ?? []).map((feature) => ({
+          (payload?.features ?? []).map((feature) => ({
             label: feature.properties.label,
             city: feature.properties.city ?? "",
           }))
         )
       } catch (error) {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setSuggestions([])
-        }
+        if (error instanceof DOMException && error.name === "AbortError") return
+        console.error("[AddressAutocomplete] fetch failed:", error)
+        setSuggestions([])
+        setErrorMessage(
+          error instanceof TypeError
+            ? "Impossible de joindre le serveur. Vérifie que le back-end tourne."
+            : error instanceof Error
+              ? error.message
+              : "Erreur inconnue."
+        )
       } finally {
         setIsLoading(false)
       }
@@ -402,6 +422,8 @@ function AddressAutocomplete({
     }
   }, [value])
 
+  const showDropdown = value.trim().length >= 3
+
   return (
     <div className="relative">
       <label className="mb-2 flex items-center gap-2 text-sm font-bold text-[#1e463e]/80">
@@ -411,21 +433,20 @@ function AddressAutocomplete({
       </label>
       <input
         value={value}
-        onChange={(event) => {
-          setSuggestions([])
-          onChange(event.target.value)
-        }}
+        onChange={(event) => onChange(event.target.value)}
         placeholder="Commence à saisir l’adresse..."
         autoComplete="street-address"
         className="w-full rounded-xl border border-transparent bg-white px-4 py-3 shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
       />
-      {(isLoading || suggestions.length > 0) && (
+      {showDropdown && (
         <div className="absolute top-full right-0 left-0 z-20 mt-1 overflow-hidden rounded-xl border border-[#ddd8ce] bg-white shadow-lg">
           {isLoading ? (
             <p className="px-4 py-3 text-sm text-[#6b7c77]">
               Recherche des adresses...
             </p>
-          ) : (
+          ) : errorMessage ? (
+            <p className="px-4 py-3 text-sm text-rose-600">{errorMessage}</p>
+          ) : suggestions.length > 0 ? (
             suggestions.map((suggestion) => (
               <button
                 key={suggestion.label}
@@ -439,6 +460,10 @@ function AddressAutocomplete({
                 {suggestion.label}
               </button>
             ))
+          ) : (
+            <p className="px-4 py-3 text-sm text-[#6b7c77]">
+              Aucune adresse trouvée. Essaie avec une rue, un code postal ou une ville.
+            </p>
           )}
         </div>
       )}
@@ -491,6 +516,7 @@ export function JobPulseDashboard() {
       const token =
         localStorage.getItem("token") ?? sessionStorage.getItem("token")
 
+      setApplicationsError("")
       if (!token) {
         setApplicationsError("Reconnecte-toi pour charger tes candidatures.")
         setIsLoadingApplications(false)
@@ -865,7 +891,7 @@ export function JobPulseDashboard() {
               <div className="col-span-2 text-right">Actions</div>
             </div>
 
-            {isLoadingApplications && (
+            {isLoadingApplications && applications.length === 0 && (
               <div className="rounded-2xl bg-white p-10 text-center text-sm text-[#1e463e]/60 shadow-[0_4px_15px_rgba(30,70,62,0.04)]">
                 Chargement des candidatures...
               </div>
