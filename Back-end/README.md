@@ -158,6 +158,24 @@ Authorization: Bearer <token>
 
 À la création, les champs `company` et `position` sont obligatoires. Les autres champs disponibles incluent `city`, `address`, `commuteTime`, `channel`, `jobUrl`, `status`, `applicationDate`, `nextFollowUpDate` et `contact` (`name`, `email`, `phone`).
 
+### Documents
+
+Les routes de documents nécessitent également un token JWT. Les fichiers sont
+stockés dans le dossier local `Back-end/uploads` et leurs métadonnées sont
+associées au compte MongoDB de l'utilisateur.
+
+| Méthode | Route | Description |
+| --- | --- | --- |
+| `GET` | `/api/documents` | Liste les documents de l'utilisateur |
+| `POST` | `/api/documents` | Dépose un fichier multipart (`file`, `category`, `customName` si `Autre`) |
+| `GET` | `/api/documents/:id/download` | Télécharge un document appartenant à l'utilisateur |
+| `PATCH` | `/api/documents/:id` | Modifie son nom d'affichage avec `displayName` |
+| `DELETE` | `/api/documents/:id` | Supprime le document et son fichier |
+
+Le nom original du fichier est conservé séparément du nom d'affichage. Les
+catégories disponibles sont `CV`, `Lettre de motivation`, `Certificat` et
+`Autre`. La taille maximale d'un fichier est de 10 Mo.
+
 ---
 
 ## 🧪 Scripts et tests
