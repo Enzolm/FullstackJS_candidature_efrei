@@ -11,6 +11,7 @@ import { ForgotPasswordPage } from "./components/ForgotPasswordPage.tsx"
 import { SettingsPage } from "./components/SettingsPage.tsx"
 import { JobsPage } from "./components/JobsPage.tsx"
 import { DocumentsPage } from "./components/DocumentsPage.tsx"
+import { AnalyticsPage } from "./components/AnalyticsPage.tsx"
 import {
   ProtectedRoute,
   PublicOnlyRoute,
@@ -74,6 +75,14 @@ createRoot(document.getElementById("root")!).render(
             element={
               <ProtectedRoute>
                 <DocumentsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/analytics"
+            element={
+              <ProtectedRoute>
+                <AnalyticsPage />
               </ProtectedRoute>
             }
           />

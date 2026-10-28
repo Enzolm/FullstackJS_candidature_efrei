@@ -1,8 +1,9 @@
-import { useState } from "react"
-import { AlertCircle, Check, Lock, Pencil, Save, X } from "lucide-react"
+import { useEffect, useState } from "react"
+import { AlertCircle, Check, Lock, MapPin, Pencil, Save, X } from "lucide-react"
 import { useAuth, type OnboardingProfile } from "@/hooks/auth/useAuth"
 import { DashboardNavbar } from "@/components/DashboardNavbar"
 
+const API_URL = `${(import.meta.env.VITE_API_URL ?? "http://localhost:3000").replace(/\/$/, "")}/api`
 const LEVELS = ["Bac", "Bac+1", "Bac+2", "Bac+3", "Bac+4", "Bac+5", "Doctorat"]
 const CONTRACTS = ["Alternance", "Stage", "CDI", "CDD"]
 const DURATIONS = ["Moins de 6 mois", "6 mois", "12 mois", "18 mois", "24 mois", "Plus de 24 mois"]
@@ -23,6 +24,14 @@ const emptyProfile: OnboardingProfile = {
   contractDuration: "", rhythm: "", location: "",
 }
 
+type AddressSuggestion = {
+  label: string
+  postcode: string
+  city: string
+  latitude: number
+  longitude: number
+}
+
 export function SettingsPage() {
   const { user, updateProfile, changePassword, isLoading, error } = useAuth()
   const [profile, setProfile] = useState<OnboardingProfile>({
@@ -36,9 +45,71 @@ export function SettingsPage() {
   const [formError, setFormError] = useState("")
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [addressQuery, setAddressQuery] = useState(user?.profile?.homeAddress?.label ?? "")
+  const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([])
+  const [isAddressLoading, setIsAddressLoading] = useState(false)
 
   const update = (field: keyof OnboardingProfile, value: string) =>
     setProfile((current) => ({ ...current, [field]: value }))
+
+  useEffect(() => {
+    if (!isEditingProfile || addressQuery.trim().length < 3) {
+      return
+    }
+
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(async () => {
+      setIsAddressLoading(true)
+      try {
+        const response = await fetch(
+          `${API_URL}/addresses/search?q=${encodeURIComponent(addressQuery)}`,
+          {
+            signal: controller.signal,
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("token") ?? sessionStorage.getItem("token")}`,
+            },
+          }
+        )
+        if (!response.ok) throw new Error("Impossible de rechercher cette adresse.")
+        const result = (await response.json()) as {
+          features?: {
+            properties: { label: string; postcode?: string; city?: string }
+            geometry: { coordinates: [number, number] }
+          }[]
+        }
+        setAddressSuggestions(
+          (result.features ?? []).map((feature) => ({
+            label: feature.properties.label,
+            postcode: feature.properties.postcode ?? "",
+            city: feature.properties.city ?? "",
+            longitude: feature.geometry.coordinates[0],
+            latitude: feature.geometry.coordinates[1],
+          }))
+        )
+      } catch (requestError) {
+        if (!(requestError instanceof DOMException && requestError.name === "AbortError")) {
+          setFormError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Impossible de rechercher cette adresse."
+          )
+        }
+      } finally {
+        setIsAddressLoading(false)
+      }
+    }, 350)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+      controller.abort()
+    }
+  }, [addressQuery, isEditingProfile])
+
+  const selectAddress = (address: AddressSuggestion) => {
+    setAddressQuery(address.label)
+    setProfile((current) => ({ ...current, homeAddress: address }))
+    setAddressSuggestions([])
+  }
 
   const saveProfile = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -55,6 +126,8 @@ export function SettingsPage() {
 
   const cancelProfileEdit = () => {
     setProfile({ ...emptyProfile, ...user?.profile })
+    setAddressQuery(user?.profile?.homeAddress?.label ?? "")
+    setAddressSuggestions([])
     setIsEditingProfile(false)
   }
 
@@ -112,6 +185,43 @@ export function SettingsPage() {
               <Field disabled={!isEditingProfile} label="Intitulé exact du diplôme" value={profile.exactDegreeTitle} onChange={(v) => update("exactDegreeTitle", v)} />
               <Field disabled={!isEditingProfile} label="Établissement" value={profile.school} onChange={(v) => update("school", v)} />
               <Field disabled={!isEditingProfile} label="Domaine recherché" value={profile.searchDomain} onChange={(v) => update("searchDomain", v)} />
+              <div className="relative sm:col-span-2">
+                <label className="flex flex-col gap-2 text-sm font-bold">
+                  <span className="flex items-center gap-2"><MapPin className="size-4 text-[#2b7a78]" />Adresse du domicile</span>
+                  <input
+                    disabled={!isEditingProfile}
+                    value={addressQuery}
+                    onChange={(event) => {
+                      setAddressQuery(event.target.value)
+                      setProfile((current) => ({ ...current, homeAddress: undefined }))
+                    }}
+                    placeholder="Commence à saisir ton adresse..."
+                    autoComplete="street-address"
+                    className="rounded-xl border border-[#ddd8ce] bg-white px-3 py-2.5 font-normal outline-none transition focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20 disabled:cursor-not-allowed disabled:bg-[#f1eee8]"
+                  />
+                </label>
+                {isEditingProfile && (isAddressLoading || addressSuggestions.length > 0) && (
+                  <div className="absolute right-0 left-0 top-full z-10 mt-1 overflow-hidden rounded-xl border border-[#ddd8ce] bg-white shadow-lg">
+                    {isAddressLoading ? (
+                      <p className="px-3 py-2 text-sm text-[#6b7c77]">Recherche des adresses...</p>
+                    ) : (
+                      addressSuggestions.map((address) => (
+                        <button
+                          key={`${address.label}-${address.latitude}`}
+                          type="button"
+                          onClick={() => selectAddress(address)}
+                          className="block w-full px-3 py-2 text-left text-sm hover:bg-[#edf4f0]"
+                        >
+                          {address.label}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+                {isEditingProfile && addressQuery.trim() && !profile.homeAddress && (
+                  <p className="mt-1 text-xs font-normal text-[#d96c4a]">Sélectionne une adresse proposée pour enregistrer ses coordonnées.</p>
+                )}
+              </div>
               <Select disabled={!isEditingProfile} label="Type de contrat" value={profile.contractType} options={CONTRACTS} onChange={(v) => { update("contractType", v); update("contractDuration", ""); update("rhythm", v === "Alternance" ? "Alternance" : "") }} />
               {profile.contractType !== "CDI" && <Select disabled={!isEditingProfile} label="Durée du contrat" value={profile.contractDuration} options={DURATIONS} onChange={(v) => update("contractDuration", v)} />}
               <Field disabled={!isEditingProfile} label="Localisation" value={profile.location} onChange={(v) => update("location", v)} />

@@ -31,6 +31,13 @@ const userSchema = new mongoose.Schema(
 			contractDuration: { type: String }, // Ex: "12 à 24 mois"
 			rhythm: { type: String }, // Ex: "2 semaines en entreprise / 1 semaine à l'école"
 			location: { type: String }, // Ex: "Île-de-France"
+			homeAddress: {
+				label: { type: String, trim: true },
+				postcode: { type: String, trim: true },
+				city: { type: String, trim: true },
+				latitude: { type: Number },
+				longitude: { type: Number },
+			},
 		},
 	},
 	{

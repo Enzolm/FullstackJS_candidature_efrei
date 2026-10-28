@@ -18,6 +18,8 @@ import {
   Bell,
   AlertTriangle,
   CalendarCheck,
+  MapPin,
+  Navigation,
   TrendingUp,
   X,
   Paperclip,
@@ -58,6 +60,7 @@ export type Application = {
   company: string
   role: string
   city?: string
+  address?: string
   jobUrl?: string
   contact?: {
     name?: string
@@ -135,6 +138,7 @@ type ApiApplication = {
   company: string
   position: string
   city?: string
+  address?: string
   jobUrl?: string
   contact?: {
     name?: string
@@ -151,6 +155,24 @@ type ApiApplication = {
     title: string
     note?: string
   }[]
+}
+
+type CommuteSummary = {
+  averageMinutes: number | null
+  calculatedTrips: number
+  configured: boolean
+  details: {
+    applicationId: string
+    minutes: number
+    origin: RoutePoint
+    destination: RoutePoint
+  }[]
+}
+
+type RoutePoint = {
+  label: string
+  latitude: number
+  longitude: number
 }
 
 export const API_STATUS_BY_UI_STATUS: Record<Status, string> = {
@@ -179,6 +201,7 @@ function mapApiApplication(application: ApiApplication): Application {
     company: application.company,
     role: application.position,
     city: application.city,
+    address: application.address,
     jobUrl: application.jobUrl,
     contact: application.contact,
     sentAt: Number.isNaN(sentAt.getTime())
@@ -234,6 +257,163 @@ function CompanyAvatar({ name }: { name: string }) {
   )
 }
 
+type AddressSuggestion = {
+  label: string
+  city: string
+}
+
+function RouteActions({
+  destination,
+  destinationPoint,
+  origin,
+  minutes,
+}: {
+  destination?: string
+  destinationPoint?: RoutePoint
+  origin?: RoutePoint
+  minutes?: number
+}) {
+  if (!destination) return null
+
+  const encodedDestination = encodeURIComponent(destination)
+  const encodedOrigin = origin ? encodeURIComponent(origin.label) : ""
+  const mapsUrl = origin
+    ? `https://www.google.com/maps/dir/?api=1&origin=${encodedOrigin}&destination=${encodedDestination}`
+    : `https://www.google.com/maps/dir/?api=1&destination=${encodedDestination}`
+  const citymapperUrl = origin && destinationPoint
+    ? `https://citymapper.com/directions?startcoord=${origin.latitude}%2C${origin.longitude}&endcoord=${destinationPoint?.latitude}%2C${destinationPoint?.longitude}&startname=${encodeURIComponent(origin.label)}&endname=${encodedDestination}&startaddress=${encodedOrigin}&endaddress=${encodedDestination}`
+    : `https://citymapper.com/directions?endaddress=${encodedDestination}`
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <a
+        href={mapsUrl}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(event) => event.stopPropagation()}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-[#edf4f0] px-2.5 py-1.5 text-xs font-bold text-[#1e463e] hover:bg-[#2b7a78] hover:text-white"
+        title="Ouvrir l’itinéraire dans Google Maps"
+      >
+        <Navigation className="size-3.5" />
+        Itinéraire{minutes !== undefined ? ` · ${minutes} min` : ""}
+      </a>
+      <a
+        href={citymapperUrl}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(event) => event.stopPropagation()}
+        className="text-xs font-bold text-[#2b7a78] underline-offset-2 hover:underline"
+        title="Ouvrir la destination dans Citymapper"
+      >
+        Citymapper
+      </a>
+    </div>
+  )
+}
+
+function AddressAutocomplete({
+  value,
+  onChange,
+  onSelect,
+}: {
+  value: string
+  onChange: (value: string) => void
+  onSelect: (suggestion: AddressSuggestion) => void
+}) {
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+
+  useEffect(() => {
+    if (value.trim().length < 3) {
+      return
+    }
+
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(async () => {
+      const token =
+        localStorage.getItem("token") ?? sessionStorage.getItem("token")
+      if (!token) return
+
+      setIsLoading(true)
+      try {
+        const response = await fetch(
+          `${API_URL}/addresses/search?q=${encodeURIComponent(value)}`,
+          {
+            signal: controller.signal,
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        )
+        const result = (await response.json()) as {
+          features?: {
+            properties: { label: string; city?: string }
+          }[]
+        }
+        if (!response.ok) throw new Error("Recherche d’adresse indisponible.")
+        setSuggestions(
+          (result.features ?? []).map((feature) => ({
+            label: feature.properties.label,
+            city: feature.properties.city ?? "",
+          }))
+        )
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setSuggestions([])
+        }
+      } finally {
+        setIsLoading(false)
+      }
+    }, 350)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+      controller.abort()
+    }
+  }, [value])
+
+  return (
+    <div className="relative">
+      <label className="mb-2 flex items-center gap-2 text-sm font-bold text-[#1e463e]/80">
+        <MapPin className="size-4 text-[#2b7a78]" />
+        Adresse de l’entreprise
+        <span className="font-normal text-[#1e463e]/50">(facultatif)</span>
+      </label>
+      <input
+        value={value}
+        onChange={(event) => {
+          setSuggestions([])
+          onChange(event.target.value)
+        }}
+        placeholder="Commence à saisir l’adresse..."
+        autoComplete="street-address"
+        className="w-full rounded-xl border border-transparent bg-white px-4 py-3 shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
+      />
+      {(isLoading || suggestions.length > 0) && (
+        <div className="absolute right-0 left-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-[#ddd8ce] bg-white shadow-lg">
+          {isLoading ? (
+            <p className="px-4 py-3 text-sm text-[#6b7c77]">
+              Recherche des adresses...
+            </p>
+          ) : (
+            suggestions.map((suggestion) => (
+              <button
+                key={suggestion.label}
+                type="button"
+                onClick={() => {
+                  onSelect(suggestion)
+                  setSuggestions([])
+                }}
+                className="block w-full px-4 py-3 text-left text-sm hover:bg-[#edf4f0]"
+              >
+                {suggestion.label}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ------------------------------------------------------------------ */
 /*                            Dashboard                               */
 /* ------------------------------------------------------------------ */
@@ -245,6 +425,10 @@ export function JobPulseDashboard() {
   const [applications, setApplications] = useState<Application[]>([])
   const [isLoadingApplications, setIsLoadingApplications] = useState(true)
   const [applicationsError, setApplicationsError] = useState("")
+  const [commuteMinutes, setCommuteMinutes] = useState<Record<string, number>>({})
+  const [commuteRoutes, setCommuteRoutes] = useState<Record<string, CommuteSummary["details"][number]>>({})
+  const [commuteAverageMinutes, setCommuteAverageMinutes] = useState<number | null>(null)
+  const [calculatedCommuteTrips, setCalculatedCommuteTrips] = useState(0)
   const [activeNav, setActiveNav] = useState<string>("dashboard")
   const [query, setQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all")
@@ -291,7 +475,42 @@ export function JobPulseDashboard() {
           )
         }
 
-        setApplications(result.data.map(mapApiApplication))
+        const mappedApplications = result.data.map(mapApiApplication)
+        setApplications(mappedApplications)
+
+        try {
+          const commuteResponse = await fetch(`${API_URL}/analytics/commute`, {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          })
+          const commuteResult = (await commuteResponse.json()) as {
+            data?: CommuteSummary
+          }
+          if (commuteResponse.ok && commuteResult.data) {
+            setCommuteAverageMinutes(commuteResult.data.averageMinutes)
+            setCalculatedCommuteTrips(commuteResult.data.calculatedTrips)
+            setCommuteMinutes(
+              Object.fromEntries(
+                commuteResult.data.details.map((detail) => [
+                  detail.applicationId,
+                  detail.minutes,
+                ])
+              )
+            )
+            setCommuteRoutes(
+              Object.fromEntries(
+                commuteResult.data.details.map((detail) => [
+                  detail.applicationId,
+                  detail,
+                ])
+              )
+            )
+          }
+        } catch (commuteError) {
+          if (commuteError instanceof Error && commuteError.name === "AbortError") {
+            return
+          }
+        }
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") return
         setApplicationsError(
@@ -346,6 +565,10 @@ export function JobPulseDashboard() {
     [applications]
   )
 
+  const averageCommuteMinutes = useMemo(() => {
+    return commuteAverageMinutes
+  }, [commuteAverageMinutes])
+
   const handleCreate = async (
     payload: Omit<Application, "id" | "timeline" | "docs" | "status"> & {
       docs: Application["docs"]
@@ -355,6 +578,7 @@ export function JobPulseDashboard() {
       company: payload.company,
       position: payload.role,
       city: payload.city,
+      address: payload.address,
       jobUrl: payload.jobUrl,
       contact: payload.contact,
       applicationDate: payload.sentAt,
@@ -462,6 +686,7 @@ export function JobPulseDashboard() {
           company: updates.company,
           position: updates.role,
           city: updates.city,
+          address: updates.address,
           jobUrl: updates.jobUrl,
           contact: updates.contact,
           applicationDate: updates.sentAt,
@@ -635,6 +860,9 @@ export function JobPulseDashboard() {
                 const Channel = CHANNEL_ICON[app.channel]
                 const expanded = expandedId === app.id
                 const faded = app.status === "rejected" ? "opacity-75" : ""
+                const destination = [app.address, app.city]
+                  .filter(Boolean)
+                  .join(", ")
                 return (
                   <li key={app.id}>
                     <div
@@ -651,6 +879,12 @@ export function JobPulseDashboard() {
                           <p className="truncate text-sm text-[#1e463e]/70">
                             {app.role}
                           </p>
+                          {commuteMinutes[app.id] !== undefined && (
+                            <p className="mt-1 flex items-center gap-1 text-xs font-bold text-[#2b7a78]">
+                              <Clock className="size-3.5" />
+                              {commuteMinutes[app.id]} min de trajet
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -767,6 +1001,22 @@ export function JobPulseDashboard() {
                     {/* Timeline (accordion) */}
                     {expanded && (
                       <div className="mt-2 rounded-2xl border border-[#8da399]/20 bg-[#f7f5f0]/70 p-6">
+                        {destination && (
+                          <div className="mb-5 rounded-2xl bg-white p-4 shadow-sm">
+                            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#1e463e]/55">
+                              Informations rapides
+                            </p>
+                            <p className="mb-3 text-sm text-[#1e463e]/75">
+                              {destination}
+                            </p>
+                            <RouteActions
+                              destination={destination}
+                              destinationPoint={commuteRoutes[app.id]?.destination}
+                              origin={commuteRoutes[app.id]?.origin}
+                              minutes={commuteMinutes[app.id]}
+                            />
+                          </div>
+                        )}
                         <div className="mb-4 flex items-center gap-2 text-sm font-bold text-[#1e463e]">
                           <Clock className="size-4 text-[#2b7a78]" />
                           Timeline des échanges
@@ -864,6 +1114,25 @@ export function JobPulseDashboard() {
                 </div>
               </div>
             </div>
+
+            {/* KPI 4 */}
+            <div className="col-span-2 flex flex-col rounded-2xl bg-white p-5 shadow-[0_4px_15px_rgba(30,70,62,0.04)] xl:col-span-1">
+              <span className="mb-2 text-sm font-bold tracking-wider text-[#1e463e]/60 uppercase">
+                Temps de trajet moyen
+              </span>
+              <div className="flex min-h-12 items-end gap-3">
+                <span className="text-4xl font-bold text-[#2b7a78]">
+                  {averageCommuteMinutes === null
+                    ? "--"
+                    : `${averageCommuteMinutes} min`}
+                </span>
+                <span className="mb-1 text-sm font-medium text-[#1e463e]/50">
+                  {averageCommuteMinutes === null
+                    ? "Adresse ou trajet manquant"
+                    : `${calculatedCommuteTrips} trajet${calculatedCommuteTrips > 1 ? "s" : ""} calculé${calculatedCommuteTrips > 1 ? "s" : ""}`}
+                </span>
+              </div>
+            </div>
           </div>
 
           {/* Action Needed */}
@@ -948,6 +1217,8 @@ export function JobPulseDashboard() {
       {applicationToView && (
         <ApplicationDetailsModal
           application={applicationToView}
+          commuteMinutes={commuteMinutes[applicationToView.id]}
+          commuteRoute={commuteRoutes[applicationToView.id]}
           onClose={() => setApplicationToView(null)}
         />
       )}
@@ -971,6 +1242,7 @@ function ApplicationModal({
   const [company, setCompany] = useState("")
   const [role, setRole] = useState("")
   const [city, setCity] = useState("")
+  const [address, setAddress] = useState("")
   const [jobUrl, setJobUrl] = useState("")
   const [hasContact, setHasContact] = useState(false)
   const [contactName, setContactName] = useState("")
@@ -998,6 +1270,7 @@ function ApplicationModal({
         company: company.trim(),
         role: role.trim(),
         city: city.trim() || undefined,
+        address: address.trim() || undefined,
         jobUrl: jobUrl.trim() || undefined,
         contact: hasContact
           ? {
@@ -1081,17 +1354,17 @@ function ApplicationModal({
           </div>
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <div>
-              <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
-                City <span className="font-normal text-[#1e463e]/50">(optional)</span>
-              </label>
-              <input
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                placeholder="e.g. Paris"
-                className="w-full rounded-xl border border-transparent bg-white px-4 py-3 shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
-              />
-            </div>
+            <AddressAutocomplete
+              value={address}
+              onChange={(value) => {
+                setAddress(value)
+                setCity("")
+              }}
+              onSelect={(suggestion) => {
+                setAddress(suggestion.label)
+                setCity(suggestion.city)
+              }}
+            />
             <div>
               <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
                 Job link <span className="font-normal text-[#1e463e]/50">(optional)</span>
@@ -1307,6 +1580,7 @@ export function EditApplicationModal({
   const [company, setCompany] = useState(application.company)
   const [role, setRole] = useState(application.role)
   const [city, setCity] = useState(application.city ?? "")
+  const [address, setAddress] = useState(application.address ?? "")
   const [jobUrl, setJobUrl] = useState(application.jobUrl ?? "")
   const [channel, setChannel] = useState(application.channel)
   const [status, setStatus] = useState(application.status)
@@ -1335,6 +1609,7 @@ export function EditApplicationModal({
         company: company.trim(),
         role: role.trim(),
         city: city.trim() || undefined,
+        address: address.trim() || undefined,
         jobUrl: jobUrl.trim() || undefined,
         contact: hasContact
           ? {
@@ -1404,7 +1679,17 @@ export function EditApplicationModal({
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <FormField label="Entreprise" value={company} onChange={setCompany} />
             <FormField label="Poste" value={role} onChange={setRole} />
-            <FormField label="Ville (facultatif)" value={city} onChange={setCity} />
+            <AddressAutocomplete
+              value={address}
+              onChange={(value) => {
+                setAddress(value)
+                setCity("")
+              }}
+              onSelect={(suggestion) => {
+                setAddress(suggestion.label)
+                setCity(suggestion.city)
+              }}
+            />
             <FormField
               label="Lien de l’offre (facultatif)"
               type="url"
@@ -1491,11 +1776,19 @@ export function EditApplicationModal({
 
 function ApplicationDetailsModal({
   application,
+  commuteMinutes,
+  commuteRoute,
   onClose,
 }: {
   application: Application
+  commuteMinutes?: number
+  commuteRoute?: CommuteSummary["details"][number]
   onClose: () => void
 }) {
+  const destination = [application.address, application.city]
+    .filter(Boolean)
+    .join(", ")
+
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-[#1e463e]/70 p-4 backdrop-blur-sm"
@@ -1548,6 +1841,21 @@ function ApplicationDetailsModal({
               </p>
             </div>
           </section>
+
+          {destination && (
+            <section className="rounded-2xl bg-white p-5 shadow-sm">
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#1e463e]/55">
+                Localisation
+              </p>
+              <p className="mb-3 text-sm text-[#1e463e]/75">{destination}</p>
+              <RouteActions
+                destination={destination}
+                destinationPoint={commuteRoute?.destination}
+                origin={commuteRoute?.origin}
+                minutes={commuteMinutes}
+              />
+            </section>
+          )}
 
           <section className="grid gap-4 sm:grid-cols-2">
             <DetailCard label="Date de candidature">

@@ -4,6 +4,8 @@ import cors from "cors";
 import applicationRoutes from "./routes/applicationRoutes.js";
 import jobRoutes from "./routes/jobRoutes.js";
 import documentRoutes from "./routes/documentRoutes.js";
+import addressRoutes from "./routes/addressRoutes.js";
+import analyticsRoutes from "./routes/analyticsRoutes.js";
 
 const app = express();
 
@@ -20,5 +22,7 @@ app.get("/api/health", (req, res) => {
 app.use("/api/applications", applicationRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/documents", documentRoutes);
+app.use("/api/addresses", addressRoutes);
+app.use("/api/analytics", analyticsRoutes);
 
 export default app;

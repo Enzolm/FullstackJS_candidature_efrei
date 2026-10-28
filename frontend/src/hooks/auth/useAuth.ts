@@ -13,7 +13,8 @@ export type AuthUser = {
     exactDegreeTitle?: string
     school?: string
     searchDomain?: string
-    [key: string]: string | undefined
+    homeAddress?: HomeAddress
+    [key: string]: string | HomeAddress | undefined
   }
 }
 
@@ -43,6 +44,14 @@ type ChangePasswordCredentials = {
   newPassword: string
 }
 
+export type HomeAddress = {
+  label: string
+  postcode: string
+  city: string
+  latitude: number
+  longitude: number
+}
+
 export type OnboardingProfile = {
   firstName: string
   lastName: string
@@ -55,6 +64,7 @@ export type OnboardingProfile = {
   contractDuration: string
   rhythm: string
   location: string
+  homeAddress?: HomeAddress
 }
 
 export function useAuth() {
