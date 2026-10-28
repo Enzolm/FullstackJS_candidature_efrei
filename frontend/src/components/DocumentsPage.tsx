@@ -418,6 +418,8 @@ export function DocumentsPage() {
                     className="w-full rounded-xl border border-[#ddd8ce] bg-white py-2.5 pr-4 pl-10 text-sm transition outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
                   />
                 </label>
+                git add . git commit -m "feat: add address and commute tracking"
+                git push{" "}
                 <span className="text-sm text-[#1e463e]/60">
                   {filteredDocuments.length} document
                   {filteredDocuments.length > 1 ? "s" : ""}

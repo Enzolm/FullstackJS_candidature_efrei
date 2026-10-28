@@ -1,10 +1,47 @@
 import Application from "../models/Application.js";
 
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 // --- CREATE : Ajouter une nouvelle candidature ---
 export const createApplication = async (req, res) => {
 	try {
+		const company = req.body.company?.trim();
+		const position = req.body.position?.trim();
+		const jobUrl = req.body.jobUrl?.trim();
+
+		if (!company || !position) {
+			return res.status(400).json({
+				success: false,
+				message: "L’entreprise et l’intitulé du poste sont obligatoires.",
+			});
+		}
+
+		const duplicateConditions = [
+			{
+				company: new RegExp(`^${escapeRegex(company)}$`, "i"),
+				position: new RegExp(`^${escapeRegex(position)}$`, "i"),
+			},
+		];
+		if (jobUrl) duplicateConditions.push({ jobUrl });
+
+		const existingApplication = await Application.findOne({
+			user: req.user.userId,
+			$or: duplicateConditions,
+		}).select("_id company position jobUrl");
+
+		if (existingApplication) {
+			return res.status(409).json({
+				success: false,
+				message: "Cette offre existe déjà dans tes candidatures.",
+				data: existingApplication,
+			});
+		}
+
 		const newApplication = new Application({
 			...req.body,
+			company,
+			position,
+			jobUrl: jobUrl || undefined,
 			user: req.user.userId, // On associe la candidature à l'utilisateur connecté
 			timeline: [
 				{
@@ -105,6 +142,8 @@ export const updateApplication = async (req, res) => {
 			"city",
 			"address",
 			"commuteTime",
+			"salary",
+			"contractType",
 			"channel",
 			"jobUrl",
 			"applicationDate",

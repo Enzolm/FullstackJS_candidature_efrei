@@ -21,6 +21,8 @@ const applicationSchema = new mongoose.Schema(
         city: { type: String },
         address: { type: String },
         commuteTime: { type: String }, // Ex: "45 min"
+        salary: { type: String },
+        contractType: { type: String },
 
         // --- Détails de l'offre ---
         channel: { type: String }, // Ex: LinkedIn, Indeed, Site officiel...
