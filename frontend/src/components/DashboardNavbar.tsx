@@ -15,12 +15,6 @@ import { ExtensionDownload } from "@/components/ExtensionDownload"
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/" },
   {
-    key: "applications",
-    label: "Applications",
-    icon: Briefcase,
-    path: "/applications",
-  },
-  {
     key: "documents",
     label: "Documents",
     icon: FolderOpen,

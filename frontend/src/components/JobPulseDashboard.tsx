@@ -41,12 +41,7 @@ const API_URL = `${(import.meta.env.VITE_API_URL ?? "http://localhost:3000").rep
 /* ------------------------------------------------------------------ */
 
 type Status =
-  | "applied"
-  | "pending"
-  | "interview"
-  | "offer"
-  | "followup"
-  | "rejected"
+  "applied" | "pending" | "interview" | "offer" | "followup" | "rejected"
 
 type TimelineEntry = {
   date: string
@@ -109,7 +104,7 @@ const STATUS_META: Record<
     dot: "bg-[#8da399]",
   },
   followup: {
-    label: "À relancer",
+    label: "Relance faite",
     bg: "bg-[#d96c4a]/10",
     text: "text-[#d96c4a]",
     dot: "bg-[#d96c4a]",
@@ -187,14 +182,16 @@ export const API_STATUS_BY_UI_STATUS: Record<Status, string> = {
 function mapApiApplication(application: ApiApplication): Application {
   const status =
     (Object.keys(API_STATUS_BY_UI_STATUS) as Status[]).find(
-      (candidate) =>
-        API_STATUS_BY_UI_STATUS[candidate] === application.status
+      (candidate) => API_STATUS_BY_UI_STATUS[candidate] === application.status
     ) ?? (application.status === "entretien" ? "interview" : "applied")
   const availableChannels = ["LinkedIn", "WTTJ", "Site", "Référence"] as const
   const channel =
     availableChannels.find((candidate) => candidate === application.channel) ??
     "Site"
   const sentAt = new Date(application.applicationDate)
+  const followupDue = application.nextFollowUpDate
+    ? new Date(application.nextFollowUpDate)
+    : null
 
   return {
     id: application._id,
@@ -219,8 +216,42 @@ function mapApiApplication(application: ApiApplication): Application {
             title: "Candidature enregistrée",
           },
         ],
-    followupDue: application.nextFollowUpDate,
+    followupDue:
+      followupDue && !Number.isNaN(followupDue.getTime())
+        ? followupDue.toISOString().slice(0, 10)
+        : undefined,
   }
+}
+
+const DEFAULT_FOLLOWUP_DELAY_DAYS = 7
+
+// Date de relance choisie, sinon la date de candidature + 7 jours
+function getFollowupDate(application: Application) {
+  if (application.followupDue) return application.followupDue
+
+  const sentAt = new Date(application.sentAt)
+  if (Number.isNaN(sentAt.getTime())) return null
+
+  sentAt.setUTCDate(sentAt.getUTCDate() + DEFAULT_FOLLOWUP_DELAY_DAYS)
+  return sentAt.toISOString().slice(0, 10)
+}
+
+// À relancer : date atteinte et statut encore "Applied" (tout autre statut l'enlève)
+function getDueFollowups(applications: Application[]) {
+  const today = new Date().toLocaleDateString("sv-SE")
+
+  return applications
+    .filter((application) => {
+      const followupDate = getFollowupDate(application)
+      return (
+        application.status === "applied" &&
+        followupDate !== null &&
+        followupDate <= today
+      )
+    })
+    .sort((a, b) =>
+      (getFollowupDate(a) ?? "").localeCompare(getFollowupDate(b) ?? "")
+    )
 }
 
 /* ------------------------------------------------------------------ */
@@ -280,9 +311,10 @@ function RouteActions({
   const mapsUrl = origin
     ? `https://www.google.com/maps/dir/?api=1&origin=${encodedOrigin}&destination=${encodedDestination}`
     : `https://www.google.com/maps/dir/?api=1&destination=${encodedDestination}`
-  const citymapperUrl = origin && destinationPoint
-    ? `https://citymapper.com/directions?startcoord=${origin.latitude}%2C${origin.longitude}&endcoord=${destinationPoint?.latitude}%2C${destinationPoint?.longitude}&startname=${encodeURIComponent(origin.label)}&endname=${encodedDestination}&startaddress=${encodedOrigin}&endaddress=${encodedDestination}`
-    : `https://citymapper.com/directions?endaddress=${encodedDestination}`
+  const citymapperUrl =
+    origin && destinationPoint
+      ? `https://citymapper.com/directions?startcoord=${origin.latitude}%2C${origin.longitude}&endcoord=${destinationPoint?.latitude}%2C${destinationPoint?.longitude}&startname=${encodeURIComponent(origin.label)}&endname=${encodedDestination}&startaddress=${encodedOrigin}&endaddress=${encodedDestination}`
+      : `https://citymapper.com/directions?endaddress=${encodedDestination}`
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -322,9 +354,12 @@ function AddressAutocomplete({
 }) {
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState("")
 
   useEffect(() => {
     if (value.trim().length < 3) {
+      setErrorMessage("")
+      setSuggestions([])
       return
     }
 
@@ -332,9 +367,13 @@ function AddressAutocomplete({
     const timeoutId = window.setTimeout(async () => {
       const token =
         localStorage.getItem("token") ?? sessionStorage.getItem("token")
-      if (!token) return
+      if (!token) {
+        setErrorMessage("Reconnecte-toi pour utiliser la recherche d’adresse.")
+        return
+      }
 
       setIsLoading(true)
+      setErrorMessage("")
       try {
         const response = await fetch(
           `${API_URL}/addresses/search?q=${encodeURIComponent(value)}`,
@@ -343,22 +382,35 @@ function AddressAutocomplete({
             headers: { Authorization: `Bearer ${token}` },
           }
         )
-        const result = (await response.json()) as {
-          features?: {
-            properties: { label: string; city?: string }
-          }[]
+        const payload = (await response.json().catch(() => null)) as
+          | {
+              features?: { properties: { label: string; city?: string } }[]
+              message?: string
+            }
+          | null
+        if (!response.ok) {
+          throw new Error(
+            payload?.message ??
+              `Recherche d’adresse indisponible (${response.status}).`
+          )
         }
-        if (!response.ok) throw new Error("Recherche d’adresse indisponible.")
         setSuggestions(
-          (result.features ?? []).map((feature) => ({
+          (payload?.features ?? []).map((feature) => ({
             label: feature.properties.label,
             city: feature.properties.city ?? "",
           }))
         )
       } catch (error) {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setSuggestions([])
-        }
+        if (error instanceof DOMException && error.name === "AbortError") return
+        console.error("[AddressAutocomplete] fetch failed:", error)
+        setSuggestions([])
+        setErrorMessage(
+          error instanceof TypeError
+            ? "Impossible de joindre le serveur. Vérifie que le back-end tourne."
+            : error instanceof Error
+              ? error.message
+              : "Erreur inconnue."
+        )
       } finally {
         setIsLoading(false)
       }
@@ -370,6 +422,8 @@ function AddressAutocomplete({
     }
   }, [value])
 
+  const showDropdown = value.trim().length >= 3
+
   return (
     <div className="relative">
       <label className="mb-2 flex items-center gap-2 text-sm font-bold text-[#1e463e]/80">
@@ -379,21 +433,20 @@ function AddressAutocomplete({
       </label>
       <input
         value={value}
-        onChange={(event) => {
-          setSuggestions([])
-          onChange(event.target.value)
-        }}
+        onChange={(event) => onChange(event.target.value)}
         placeholder="Commence à saisir l’adresse..."
         autoComplete="street-address"
         className="w-full rounded-xl border border-transparent bg-white px-4 py-3 shadow-sm transition-all outline-none focus:border-[#2b7a78] focus:ring-2 focus:ring-[#2b7a78]/20"
       />
-      {(isLoading || suggestions.length > 0) && (
-        <div className="absolute right-0 left-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-[#ddd8ce] bg-white shadow-lg">
+      {showDropdown && (
+        <div className="absolute top-full right-0 left-0 z-20 mt-1 overflow-hidden rounded-xl border border-[#ddd8ce] bg-white shadow-lg">
           {isLoading ? (
             <p className="px-4 py-3 text-sm text-[#6b7c77]">
               Recherche des adresses...
             </p>
-          ) : (
+          ) : errorMessage ? (
+            <p className="px-4 py-3 text-sm text-rose-600">{errorMessage}</p>
+          ) : suggestions.length > 0 ? (
             suggestions.map((suggestion) => (
               <button
                 key={suggestion.label}
@@ -407,6 +460,10 @@ function AddressAutocomplete({
                 {suggestion.label}
               </button>
             ))
+          ) : (
+            <p className="px-4 py-3 text-sm text-[#6b7c77]">
+              Aucune adresse trouvée. Essaie avec une rue, un code postal ou une ville.
+            </p>
           )}
         </div>
       )}
@@ -425,9 +482,15 @@ export function JobPulseDashboard() {
   const [applications, setApplications] = useState<Application[]>([])
   const [isLoadingApplications, setIsLoadingApplications] = useState(true)
   const [applicationsError, setApplicationsError] = useState("")
-  const [commuteMinutes, setCommuteMinutes] = useState<Record<string, number>>({})
-  const [commuteRoutes, setCommuteRoutes] = useState<Record<string, CommuteSummary["details"][number]>>({})
-  const [commuteAverageMinutes, setCommuteAverageMinutes] = useState<number | null>(null)
+  const [commuteMinutes, setCommuteMinutes] = useState<Record<string, number>>(
+    {}
+  )
+  const [commuteRoutes, setCommuteRoutes] = useState<
+    Record<string, CommuteSummary["details"][number]>
+  >({})
+  const [commuteAverageMinutes, setCommuteAverageMinutes] = useState<
+    number | null
+  >(null)
   const [calculatedCommuteTrips, setCalculatedCommuteTrips] = useState(0)
   const [activeNav, setActiveNav] = useState<string>("dashboard")
   const [query, setQuery] = useState("")
@@ -437,9 +500,9 @@ export function JobPulseDashboard() {
   >("all")
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [deletingApplicationId, setDeletingApplicationId] = useState<string | null>(
-    null
-  )
+  const [deletingApplicationId, setDeletingApplicationId] = useState<
+    string | null
+  >(null)
   const [applicationToEdit, setApplicationToEdit] =
     useState<Application | null>(null)
   const [applicationToView, setApplicationToView] =
@@ -453,6 +516,7 @@ export function JobPulseDashboard() {
       const token =
         localStorage.getItem("token") ?? sessionStorage.getItem("token")
 
+      setApplicationsError("")
       if (!token) {
         setApplicationsError("Reconnecte-toi pour charger tes candidatures.")
         setIsLoadingApplications(false)
@@ -507,7 +571,10 @@ export function JobPulseDashboard() {
             )
           }
         } catch (commuteError) {
-          if (commuteError instanceof Error && commuteError.name === "AbortError") {
+          if (
+            commuteError instanceof Error &&
+            commuteError.name === "AbortError"
+          ) {
             return
           }
         }
@@ -555,10 +622,7 @@ export function JobPulseDashboard() {
     return { active, interviews, rate }
   }, [applications])
 
-  const followups = useMemo(
-    () => applications.filter((a) => a.status === "followup"),
-    [applications]
-  )
+  const followups = useMemo(() => getDueFollowups(applications), [applications])
 
   const upcomingInterviews = useMemo(
     () => applications.filter((a) => a.status === "interview"),
@@ -674,28 +738,25 @@ export function JobPulseDashboard() {
       throw new Error("Reconnecte-toi pour modifier une candidature.")
     }
 
-    const response = await fetch(
-      `${API_URL}/applications/${applicationId}`,
-      {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          company: updates.company,
-          position: updates.role,
-          city: updates.city,
-          address: updates.address,
-          jobUrl: updates.jobUrl,
-          contact: updates.contact,
-          applicationDate: updates.sentAt,
-          channel: updates.channel,
-          nextFollowUpDate: updates.followupDue,
-          status: API_STATUS_BY_UI_STATUS[updates.status],
-        }),
-      }
-    )
+    const response = await fetch(`${API_URL}/applications/${applicationId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        company: updates.company,
+        position: updates.role,
+        city: updates.city,
+        address: updates.address,
+        jobUrl: updates.jobUrl,
+        contact: updates.contact,
+        applicationDate: updates.sentAt,
+        channel: updates.channel,
+        nextFollowUpDate: updates.followupDue,
+        status: API_STATUS_BY_UI_STATUS[updates.status],
+      }),
+    })
     const result = (await response.json()) as {
       data?: ApiApplication
       message?: string
@@ -830,7 +891,7 @@ export function JobPulseDashboard() {
               <div className="col-span-2 text-right">Actions</div>
             </div>
 
-            {isLoadingApplications && (
+            {isLoadingApplications && applications.length === 0 && (
               <div className="rounded-2xl bg-white p-10 text-center text-sm text-[#1e463e]/60 shadow-[0_4px_15px_rgba(30,70,62,0.04)]">
                 Chargement des candidatures...
               </div>
@@ -1003,7 +1064,7 @@ export function JobPulseDashboard() {
                       <div className="mt-2 rounded-2xl border border-[#8da399]/20 bg-[#f7f5f0]/70 p-6">
                         {destination && (
                           <div className="mb-5 rounded-2xl bg-white p-4 shadow-sm">
-                            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#1e463e]/55">
+                            <p className="mb-2 text-xs font-bold tracking-wide text-[#1e463e]/55 uppercase">
                               Informations rapides
                             </p>
                             <p className="mb-3 text-sm text-[#1e463e]/75">
@@ -1011,7 +1072,9 @@ export function JobPulseDashboard() {
                             </p>
                             <RouteActions
                               destination={destination}
-                              destinationPoint={commuteRoutes[app.id]?.destination}
+                              destinationPoint={
+                                commuteRoutes[app.id]?.destination
+                              }
                               origin={commuteRoutes[app.id]?.origin}
                               minutes={commuteMinutes[app.id]}
                             />
@@ -1149,10 +1212,10 @@ export function JobPulseDashboard() {
             )}
 
             {/* Follow-up card */}
-            {followups.slice(0, 1).map((app) => (
+            {followups.slice(0, 3).map((app) => (
               <div
                 key={app.id}
-                className="group relative cursor-pointer overflow-hidden rounded-2xl border-l-4 border-[#d96c4a] bg-white p-5 shadow-[0_8px_30px_rgba(30,70,62,0.08)] transition-transform hover:-translate-y-1"
+                className="group relative overflow-hidden rounded-2xl border-l-4 border-[#d96c4a] bg-white p-5 shadow-[0_8px_30px_rgba(30,70,62,0.08)] transition-transform hover:-translate-y-1"
               >
                 <Mail className="absolute top-3 right-3 size-10 translate-x-2 -translate-y-2 text-[#d96c4a]/10" />
                 <div className="mb-2 flex items-center gap-2 text-sm font-bold text-[#d96c4a]">
@@ -1162,13 +1225,13 @@ export function JobPulseDashboard() {
                 <h4 className="mb-1 font-bold text-[#1e463e]">
                   {app.company} — {app.role}
                 </h4>
-                <p className="mb-4 text-sm text-[#1e463e]/70">
-                  Candidature envoyée il y a plusieurs jours. Il est temps
-                  d'envoyer une relance au recruteur.
+                <p className="text-sm text-[#1e463e]/70">
+                  Relance prévue le{" "}
+                  {new Date(
+                    getFollowupDate(app) ?? app.sentAt
+                  ).toLocaleDateString("fr-FR")}
+                  . Il est temps d'envoyer une relance au recruteur.
                 </p>
-                <button className="w-full rounded-xl bg-[#d96c4a]/10 py-2 font-bold text-[#d96c4a] transition-colors hover:bg-[#d96c4a] hover:text-white">
-                  Générer relance
-                </button>
               </div>
             ))}
 
@@ -1209,9 +1272,7 @@ export function JobPulseDashboard() {
         <EditApplicationModal
           application={applicationToEdit}
           onClose={() => setApplicationToEdit(null)}
-          onSubmit={(updates) =>
-            handleUpdate(applicationToEdit.id, updates)
-          }
+          onSubmit={(updates) => handleUpdate(applicationToEdit.id, updates)}
         />
       )}
       {applicationToView && (
@@ -1367,7 +1428,10 @@ function ApplicationModal({
             />
             <div>
               <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
-                Job link <span className="font-normal text-[#1e463e]/50">(optional)</span>
+                Job link{" "}
+                <span className="font-normal text-[#1e463e]/50">
+                  (optional)
+                </span>
               </label>
               <input
                 type="url"
@@ -1443,7 +1507,9 @@ function ApplicationModal({
                 className="size-4 rounded border-[#ddd8ce] accent-[#1e463e]"
               />
               J’ai un contact pour cette candidature
-              <span className="font-normal text-[#1e463e]/50">(facultatif)</span>
+              <span className="font-normal text-[#1e463e]/50">
+                (facultatif)
+              </span>
             </label>
 
             {hasContact && (
@@ -1573,9 +1639,7 @@ export function EditApplicationModal({
   application: Application
   heading?: string
   onClose: () => void
-  onSubmit: (
-    updates: Omit<Application, "id" | "timeline">
-  ) => Promise<void>
+  onSubmit: (updates: Omit<Application, "id" | "timeline">) => Promise<void>
 }) {
   const [company, setCompany] = useState(application.company)
   const [role, setRole] = useState(application.role)
@@ -1649,7 +1713,7 @@ export function EditApplicationModal({
       >
         <header className="flex items-center justify-between border-b border-[#1e463e]/10 bg-white px-8 py-6">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-[#d96c4a]">
+            <p className="text-xs font-bold tracking-wider text-[#d96c4a] uppercase">
               {heading}
             </p>
             <h2
@@ -1669,7 +1733,10 @@ export function EditApplicationModal({
           </button>
         </header>
 
-        <form onSubmit={handleSubmit} className="max-h-[80vh] space-y-6 overflow-y-auto p-8">
+        <form
+          onSubmit={handleSubmit}
+          className="max-h-[80vh] space-y-6 overflow-y-auto p-8"
+        >
           {error && (
             <p role="alert" className="text-sm text-red-700">
               {error}
@@ -1677,7 +1744,11 @@ export function EditApplicationModal({
           )}
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <FormField label="Entreprise" value={company} onChange={setCompany} />
+            <FormField
+              label="Entreprise"
+              value={company}
+              onChange={setCompany}
+            />
             <FormField label="Poste" value={role} onChange={setRole} />
             <AddressAutocomplete
               value={address}
@@ -1749,13 +1820,29 @@ export function EditApplicationModal({
                 className="size-4 rounded border-[#ddd8ce] accent-[#1e463e]"
               />
               J’ai un contact pour cette candidature
-              <span className="font-normal text-[#1e463e]/50">(facultatif)</span>
+              <span className="font-normal text-[#1e463e]/50">
+                (facultatif)
+              </span>
             </label>
             {hasContact && (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <FormField label="Nom du contact" value={contactName} onChange={setContactName} />
-                <FormField label="E-mail du contact" type="email" value={contactEmail} onChange={setContactEmail} />
-                <FormField label="Téléphone du contact" type="tel" value={contactPhone} onChange={setContactPhone} />
+                <FormField
+                  label="Nom du contact"
+                  value={contactName}
+                  onChange={setContactName}
+                />
+                <FormField
+                  label="E-mail du contact"
+                  type="email"
+                  value={contactEmail}
+                  onChange={setContactEmail}
+                />
+                <FormField
+                  label="Téléphone du contact"
+                  type="tel"
+                  value={contactPhone}
+                  onChange={setContactPhone}
+                />
               </div>
             )}
           </section>
@@ -1764,7 +1851,10 @@ export function EditApplicationModal({
             <Button type="button" variant="ghost" onClick={onClose}>
               Annuler
             </Button>
-            <Button type="submit" disabled={isSubmitting || !company.trim() || !role.trim()}>
+            <Button
+              type="submit"
+              disabled={isSubmitting || !company.trim() || !role.trim()}
+            >
               {isSubmitting ? "Enregistrement..." : "Enregistrer"}
             </Button>
           </footer>
@@ -1803,7 +1893,7 @@ function ApplicationDetailsModal({
       >
         <header className="flex items-center justify-between border-b border-[#1e463e]/10 bg-white px-8 py-6">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-[#d96c4a]">
+            <p className="text-xs font-bold tracking-wider text-[#d96c4a] uppercase">
               Détail de la candidature
             </p>
             <h2
@@ -1827,13 +1917,13 @@ function ApplicationDetailsModal({
         <div className="max-h-[75vh] space-y-6 overflow-y-auto p-8">
           <section className="flex items-center justify-between rounded-2xl bg-white p-5 shadow-sm">
             <div>
-              <p className="mb-1 text-xs font-bold uppercase tracking-wider text-[#1e463e]/50">
+              <p className="mb-1 text-xs font-bold tracking-wider text-[#1e463e]/50 uppercase">
                 Statut actuel
               </p>
               <StatusBadge status={application.status} />
             </div>
             <div className="text-right">
-              <p className="mb-1 text-xs font-bold uppercase tracking-wider text-[#1e463e]/50">
+              <p className="mb-1 text-xs font-bold tracking-wider text-[#1e463e]/50 uppercase">
                 Canal
               </p>
               <p className="font-semibold text-[#1e463e]">
@@ -1844,7 +1934,7 @@ function ApplicationDetailsModal({
 
           {destination && (
             <section className="rounded-2xl bg-white p-5 shadow-sm">
-              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#1e463e]/55">
+              <p className="mb-2 text-xs font-bold tracking-wide text-[#1e463e]/55 uppercase">
                 Localisation
               </p>
               <p className="mb-3 text-sm text-[#1e463e]/75">{destination}</p>
@@ -2035,7 +2125,7 @@ function StyledSelect({
                 <BaseSelect.Item
                   key={option.value}
                   value={option.value}
-                  className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 outline-none transition-colors data-[highlighted]:bg-[#edf4f1] data-[selected]:font-semibold data-[selected]:text-[#1e463e]"
+                  className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 transition-colors outline-none data-[highlighted]:bg-[#edf4f1] data-[selected]:font-semibold data-[selected]:text-[#1e463e]"
                 >
                   <BaseSelect.ItemIndicator className="flex size-4 shrink-0 items-center justify-center text-[#2b7a78]">
                     <Check className="size-4" />
@@ -2060,7 +2150,7 @@ function DetailCard({
 }) {
   return (
     <div className="rounded-2xl border border-[#eae5da] bg-white p-4 shadow-sm">
-      <p className="text-xs font-bold uppercase tracking-wide text-[#1e463e]/50">
+      <p className="text-xs font-bold tracking-wide text-[#1e463e]/50 uppercase">
         {label}
       </p>
       <p className="mt-1 font-semibold text-[#1e463e]">{children}</p>
