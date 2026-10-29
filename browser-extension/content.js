@@ -1,6 +1,7 @@
 (function () {
-  if (window.__trackMyApplyInjected) return;
-  window.__trackMyApplyInjected = true;
+  const injectionVersion = "0.1.2";
+  if (window.__trackMyApplyInjected === injectionVersion) return;
+  window.__trackMyApplyInjected = injectionVersion;
 
   const DRAG_MIME = "application/x-trackmyapply-document";
   const inTopFrame = window === window.top;
@@ -82,28 +83,55 @@
     return "";
   }
 
-  function findIndeedLocation() {
-    const preferredLocation = textFromSelectors([
+  function cleanText(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function findIndeedMetadata() {
+    return document.querySelector("[data-testid='company-info-metadata']");
+  }
+
+  function findIndeedLocation(metadata, company) {
+    const directLocation = textFromSelectors([
       "[data-testid='job-location']",
       "[data-testid='jobsearch-JobInfoHeader-subtitle']",
+      "[data-testid='inlineHeader-companyLocation']",
       "#jobLocationText",
       ".jobsearch-JobInfoHeader-subtitle",
     ]);
-    if (preferredLocation) return preferredLocation;
+    if (directLocation) return directLocation;
 
-    const metadata = document.querySelector(
-      "[data-testid='company-info-metadata']",
-    );
     if (!metadata) return "";
 
-    const candidates = [...metadata.querySelectorAll("div")].map((element) =>
-      element.textContent?.trim().replace(/\s+/g, " ") || "",
-    );
+    const candidates = [...metadata.querySelectorAll("div, span")]
+      .map((element) => cleanText(element.textContent))
+      .filter((value, index, values) => value && values.indexOf(value) === index)
+      .filter((value) => value !== company)
+      .filter((value) => !/^\d+(?:[.,]\d+)?\s*(?:étoile|star)/i.test(value))
+      .filter((value) => !/^(?:[-·]|CDI|CDD|Intérim|Stage|Alternance)$/i.test(value))
+      .filter((value) => !/^\d[\d\s.,€]*\s*(?:€|euros?)?/i.test(value));
+
     return (
       candidates
-        .filter((value) => /^\d{5}\s+\S+/.test(value))
+        .filter((value) =>
+          /(?:\b\d{5}\b|rue|avenue|boulevard|chemin|place|route|allée|impasse|quai)\b/i.test(
+            value,
+          ),
+        )
         .sort((left, right) => left.length - right.length)[0] || ""
     );
+  }
+
+  function findIndeedOfferDetails(metadata) {
+    const details = cleanText(metadata?.textContent);
+    const salary =
+      details.match(
+        /(?:De\s+)?\d[\d\s.,]*\s*(?:€|euros?)(?:\s*(?:à|-)\s*\d[\d\s.,]*\s*(?:€|euros?))?(?:\s+par\s+\w+)?/i,
+      )?.[0] || "";
+    const contractType =
+      details.match(/\b(CDI|CDD|Intérim|Stage|Alternance)\b/i)?.[1] || "";
+
+    return { salary, contractType };
   }
 
   function extractIndeedOffer() {
@@ -120,6 +148,8 @@
         .replace(/\s*\|\s*Indeed.*$/i, "")
         .trim();
     const company = textFromSelectors([
+      "[data-testid='company-info-title-row'] + [data-testid='company-info-metadata'] a",
+      "[data-testid='company-info-metadata'] a[href*='/cmp/']",
       "[data-testid='company-info-metadata'] a",
       "[data-testid='company-info-title-row'] + div a",
       "[data-testid='inlineHeader-companyName']",
@@ -127,12 +157,9 @@
       "[data-testid='companyName']",
       ".jobsearch-JobInfoHeader-companyName",
     ]);
-    const location = findIndeedLocation();
-    const offerDetails = textFromSelectors([
-      "[data-testid='company-info-metadata'] > div:nth-child(2)",
-    ]);
-    const contractType =
-      offerDetails.match(/\b(CDI|CDD|Intérim|Stage|Alternance)\b/i)?.[1] || "";
+    const metadata = findIndeedMetadata();
+    const location = findIndeedLocation(metadata, company);
+    const { salary, contractType } = findIndeedOfferDetails(metadata);
     const locationParts = location.match(/^(?:\d{5}\s+)?(.+)$/);
     const city = locationParts?.[1]?.trim() || location;
 
@@ -147,7 +174,7 @@
       company,
       city,
       address: location,
-      salary: offerDetails.replace(/\s+-\s+.*$/, "").trim(),
+      salary,
       contractType,
       jobUrl: window.location.href,
     };

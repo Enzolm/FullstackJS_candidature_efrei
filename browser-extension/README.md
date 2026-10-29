@@ -11,7 +11,8 @@ Prototype Chrome Extension Manifest V3 avec Side Panel.
 5. Sélectionner le dossier `browser-extension`.
 6. Cliquer sur l’icône de l’extension pour ouvrir le Side Panel.
 7. Ouvrir TrackMyApply dans un onglet et se connecter avec son compte.
-8. Cliquer sur **Synchroniser mon espace** dans le Side Panel.
+8. Dans le Side Panel, utiliser **Connexion rapide depuis le site** pour récupérer la session déjà ouverte.
+9. Il est également possible de saisir directement son email et son mot de passe dans le formulaire de l’extension.
 
 ## Utilisation
 
@@ -49,9 +50,11 @@ entièrement encapsulé peuvent refuser cette méthode. Dans ce cas, il faut pr�
 un bouton de secours qui demande à l’utilisateur de choisir le fichier via
 l’input natif du site.
 
-L’extension ne possède plus de formulaire de connexion : elle récupère le token
-déjà présent dans la session TrackMyApply ouverte dans l’onglet local. Les tokens
-sont ensuite stockés dans `chrome.storage.local`. Pour une version de production,
-il faudra remplacer ce pont local par un vrai flux OAuth ou un code de liaison
-à usage unique, limiter les domaines autorisés et éviter de précharger tous les
-fichiers volumineux.
+L’extension propose deux modes de connexion : un formulaire autonome qui appelle
+`POST /api/auth/login`, et une connexion rapide qui récupère le token déjà
+présent dans la session TrackMyApply ouverte dans l’onglet local. Le pont lit
+`localStorage` et `sessionStorage`, puis les tokens sont stockés dans
+`chrome.storage.local`. Pour une version de production, il faudra remplacer ce
+pont local et le stockage direct du token par un vrai flux OAuth ou un code de
+liaison à usage unique, limiter les domaines autorisés et éviter de précharger
+tous les fichiers volumineux.

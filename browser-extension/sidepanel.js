@@ -11,15 +11,21 @@ const previewPositionElement = document.querySelector("#preview-position");
 const previewCompanyElement = document.querySelector("#preview-company");
 const saveIndeedButton = document.querySelector("#save-indeed");
 const refreshIndeedButton = document.querySelector("#refresh-indeed");
+const loginForm = document.querySelector("#login-form");
+const loginButton = document.querySelector("#login-button");
 let documents = [];
 let loadedFiles = new Map();
 
 notifyActiveTab("sidepanel-open");
 
 document.querySelector("#connect-site").addEventListener("click", connectFromSite);
-document.querySelector("#open-site").addEventListener("click", () => {
+document.querySelector("#open-site").addEventListener("click", openSite);
+document.querySelector("#open-site-header").addEventListener("click", openSite);
+loginForm.addEventListener("submit", loginWithCredentials);
+
+function openSite() {
   chrome.tabs.create({ url: "http://localhost:5173/" });
-});
+}
 
 async function connectFromSite() {
   setStatus("Connexion...");
@@ -36,7 +42,7 @@ async function connectFromSite() {
       type: "get-site-session",
     });
     if (!session?.token) {
-      throw new Error("Connecte-toi d’abord sur TrackMyApply.");
+      throw new Error("Connecte-toi d’abord sur TrackMyApply dans cet onglet.");
     }
     await chrome.storage.local.set({
       token: session.token,
@@ -48,6 +54,46 @@ async function connectFromSite() {
       error instanceof Error ? error.message : "Synchronisation impossible.",
       true,
     );
+  }
+}
+
+async function loginWithCredentials(event) {
+  event.preventDefault();
+  loginButton.disabled = true;
+  setStatus("Connexion...");
+
+  try {
+    const response = await fetch(`${API_URL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: document.querySelector("#login-email").value.trim(),
+        password: document.querySelector("#login-password").value,
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok || !result.token) {
+      throw new Error(result.message || "Email ou mot de passe incorrect.");
+    }
+
+    await chrome.storage.local.set({
+      token: result.token,
+      user: result.data || null,
+    });
+    loginForm.reset();
+    await loadDocuments();
+  } catch (error) {
+    setStatus(
+      error instanceof TypeError
+        ? "Backend inaccessible. Vérifie que le serveur est démarré."
+        : error instanceof Error
+          ? error.message
+          : "Connexion impossible.",
+      true,
+    );
+  } finally {
+    loginButton.disabled = false;
   }
 }
 
@@ -231,6 +277,7 @@ function renderDocuments() {
 function showLogin() {
   loginView.hidden = false;
   documentsView.hidden = true;
+  document.querySelector("#login-email").focus();
 }
 
 function showDocuments() {

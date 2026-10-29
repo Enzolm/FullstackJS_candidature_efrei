@@ -16,15 +16,26 @@
             <h1>Mes documents</h1>
           </div>
         </div>
-        <button id="refresh" class="icon-button" title="Actualiser" aria-label="Actualiser">↻</button>
+        <div class="header-actions">
+          <button id="open-site-header" class="icon-button" title="Ouvrir TrackMyApply" aria-label="Ouvrir TrackMyApply">↗</button>
+          <button id="refresh" class="icon-button" title="Actualiser" aria-label="Actualiser">↻</button>
+        </div>
       </header>
 
       <section id="login-view" class="card">
         <div class="section-icon">↗</div>
         <h2>Retrouve tes documents</h2>
-        <p>Connecte-toi à TrackMyApply dans un onglet pour synchroniser automatiquement ton espace.</p>
-        <button id="connect-site" class="primary" type="button">Synchroniser mon espace</button>
-        <button id="open-site" class="secondary full-button" type="button">Ouvrir TrackMyApply</button>
+        <p>Connecte-toi pour retrouver tes documents et enregistrer tes candidatures depuis Chrome.</p>
+        <form id="login-form">
+          <label for="login-email">Adresse email</label>
+          <input id="login-email" type="email" autocomplete="email" placeholder="votre.mail@exemple.fr" required />
+          <label for="login-password">Mot de passe</label>
+          <input id="login-password" type="password" autocomplete="current-password" placeholder="Votre mot de passe" required />
+          <button id="login-button" class="primary full-button" type="submit">Se connecter</button>
+        </form>
+        <div class="login-separator"><span>ou</span></div>
+        <button id="connect-site" class="secondary full-button" type="button">Connexion rapide depuis le site</button>
+        <button id="open-site" class="link-button full-button" type="button">Ouvrir TrackMyApply</button>
       </section>
 
       <section id="documents-view" hidden>
