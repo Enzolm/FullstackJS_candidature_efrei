@@ -1,5 +1,4 @@
 import {
-  Briefcase,
   ChartLine,
   FolderOpen,
   LayoutDashboard,

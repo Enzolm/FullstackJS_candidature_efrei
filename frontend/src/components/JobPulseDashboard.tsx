@@ -22,11 +22,9 @@ import {
   Navigation,
   TrendingUp,
   X,
-  Paperclip,
   Filter,
   ArrowUpDown,
   Eye,
-  UploadCloud,
   CheckCircle2,
 } from "lucide-react"
 import { Select as BaseSelect } from "@base-ui/react/select"
@@ -356,12 +354,11 @@ function AddressAutocomplete({
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
 
+  const trimmedValue = value.trim()
+  const isQueryValid = trimmedValue.length >= 3
+
   useEffect(() => {
-    if (value.trim().length < 3) {
-      setErrorMessage("")
-      setSuggestions([])
-      return
-    }
+    if (!isQueryValid) return
 
     const controller = new AbortController()
     const timeoutId = window.setTimeout(async () => {
@@ -382,12 +379,10 @@ function AddressAutocomplete({
             headers: { Authorization: `Bearer ${token}` },
           }
         )
-        const payload = (await response.json().catch(() => null)) as
-          | {
-              features?: { properties: { label: string; city?: string } }[]
-              message?: string
-            }
-          | null
+        const payload = (await response.json().catch(() => null)) as {
+          features?: { properties: { label: string; city?: string } }[]
+          message?: string
+        } | null
         if (!response.ok) {
           throw new Error(
             payload?.message ??
@@ -420,9 +415,11 @@ function AddressAutocomplete({
       window.clearTimeout(timeoutId)
       controller.abort()
     }
-  }, [value])
+  }, [isQueryValid, value])
 
-  const showDropdown = value.trim().length >= 3
+  const showDropdown = isQueryValid
+  const visibleSuggestions = isQueryValid ? suggestions : []
+  const visibleError = isQueryValid ? errorMessage : ""
 
   return (
     <div className="relative">
@@ -444,10 +441,10 @@ function AddressAutocomplete({
             <p className="px-4 py-3 text-sm text-[#6b7c77]">
               Recherche des adresses...
             </p>
-          ) : errorMessage ? (
-            <p className="px-4 py-3 text-sm text-rose-600">{errorMessage}</p>
-          ) : suggestions.length > 0 ? (
-            suggestions.map((suggestion) => (
+          ) : visibleError ? (
+            <p className="px-4 py-3 text-sm text-rose-600">{visibleError}</p>
+          ) : visibleSuggestions.length > 0 ? (
+            visibleSuggestions.map((suggestion) => (
               <button
                 key={suggestion.label}
                 type="button"
@@ -462,7 +459,8 @@ function AddressAutocomplete({
             ))
           ) : (
             <p className="px-4 py-3 text-sm text-[#6b7c77]">
-              Aucune adresse trouvée. Essaie avec une rue, un code postal ou une ville.
+              Aucune adresse trouvée. Essaie avec une rue, un code postal ou une
+              ville.
             </p>
           )}
         </div>
@@ -1312,8 +1310,8 @@ function ApplicationModal({
   const [channel, setChannel] = useState<Application["channel"]>("LinkedIn")
   const [sentAt, setSentAt] = useState(new Date().toISOString().slice(0, 10))
   const [followupDue, setFollowupDue] = useState("")
-  const [cv, setCv] = useState(true)
-  const [lm, setLm] = useState(false)
+  const cv = true
+  const lm = false
   const [toast, setToast] = useState(false)
   const [submitError, setSubmitError] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -1554,7 +1552,7 @@ function ApplicationModal({
           </div>
 
           {/* Dropzone */}
-          <div>
+          {/* <div>
             <label className="mb-2 block text-sm font-bold text-[#1e463e]/80">
               Attach Documents (CV, Cover Letter)
             </label>
@@ -1598,7 +1596,7 @@ function ApplicationModal({
                 Lettre de motivation
               </label>
             </div>
-          </div>
+          </div> */}
 
           <div className="flex justify-end gap-3 pt-4">
             <Button
