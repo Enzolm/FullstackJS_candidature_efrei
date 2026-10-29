@@ -6,6 +6,8 @@
   "scripts": {
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "test:auth": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js test/auth.test.js",
+    "test:applications": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js test/application.test.js",
+    "test:documents": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js test/document.test.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },

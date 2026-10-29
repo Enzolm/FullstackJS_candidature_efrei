@@ -196,7 +196,20 @@ L'application frontend sera accessible sur `http://localhost:5173`.
   - Acceptation d'un token JWT valide et transmission de l'identifiant utilisateur au middleware suivant.
   - Refus d'un nouveau mot de passe de moins de 8 caractères.
   - Refus d'un code de réinitialisation de mot de passe invalide.
-- Les tests utilisent **Jest** avec l'environnement Node.js et sont situés dans `Back-end/test/auth.test.js`.
+- **Lancer uniquement les tests du CRUD des candidatures :**
+  ```bash
+  pnpm run test:applications
+  ```
+- **Tests du CRUD des candidatures actuellement couverts :**
+  - Création : refus sans entreprise ou sans poste, détection des doublons (409, y compris via l'URL de l'offre), rattachement à l'utilisateur et timeline initiale.
+  - Lecture : liste des candidatures de l'utilisateur triées de la plus récente à la plus ancienne, lecture d'une candidature par identifiant, 404 si elle est introuvable.
+  - Modification : seuls les champs autorisés sont modifiés, une entrée de timeline est ajoutée lors d'un changement de statut.
+  - Suppression : suppression limitée aux candidatures de l'utilisateur, 404 si elle est introuvable.
+- **Lancer uniquement les tests du CRUD des documents :**
+  ```bash
+  pnpm run test:documents
+  ```
+- Les tests utilisent **Jest** avec l'environnement Node.js et appellent directement les contrôleurs avec des modèles mockés (aucune base de données requise). Ils sont situés dans `Back-end/test/auth.test.js`, `Back-end/test/application.test.js` et `Back-end/test/document.test.js`.
 
 ---
 
