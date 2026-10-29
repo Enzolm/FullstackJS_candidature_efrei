@@ -1,6 +1,9 @@
 import express from "express";
 import cors from "cors";
+import swaggerUi from "swagger-ui-express";
+import openApiSpec from "./docs/openapi.js";
 // 1. On importe notre fichier de routes qu'on vient de créer
+import authRoutes from "./routes/authRoutes.js";
 import applicationRoutes from "./routes/applicationRoutes.js";
 import jobRoutes from "./routes/jobRoutes.js";
 import documentRoutes from "./routes/documentRoutes.js";
@@ -18,6 +21,12 @@ app.get("/api/health", (req, res) => {
 	res.status(200).json({ status: "ok" });
 });
 
+app.get("/api-docs.json", (_req, res) => {
+	res.json(openApiSpec);
+});
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
+
+app.use("/api/auth", authRoutes);
 // 2. On branche toutes nos routes de candidatures sous le préfixe "/api/applications"
 app.use("/api/applications", applicationRoutes);
 app.use("/api/jobs", jobRoutes);

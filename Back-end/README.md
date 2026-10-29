@@ -31,6 +31,7 @@ Les statuts acceptés sont `postulé`, `en attente`, `entretien prévu`, `entret
 ### ❤️ 3. Vérification du serveur
 
 - Une route de santé permet de vérifier que l’API répond : `GET /api/health`.
+- La documentation interactive **Swagger UI / OpenAPI est configurée** pour les routes de l’API et permet de les essayer depuis le navigateur.
 
 ---
 
@@ -105,6 +106,25 @@ pnpm start
 ```
 
 L’API écoute par défaut sur `http://localhost:5000`. Le serveur attend la connexion à MongoDB avant de démarrer.
+
+### 4. Consulter la documentation Swagger
+
+Une fois l’API démarrée, ouvrir [http://localhost:5000/api-docs](http://localhost:5000/api-docs)
+pour parcourir les routes et les essayer depuis Swagger UI. Si `PORT` est
+différent de `5000`, remplacer ce port dans l’adresse.
+
+Pour vérifier Swagger :
+
+1. Démarrer MongoDB, puis lancer `pnpm dev` depuis le dossier `Back-end`.
+2. Ouvrir `/api-docs` sur le port configuré et vérifier que les sections de routes apparaissent.
+3. Ouvrir `GET /health`, cliquer sur **Try it out**, puis **Execute**. L’API doit répondre `200` avec `{ "status": "ok" }`.
+4. Pour tester une route protégée, exécuter `POST /auth/login` avec un compte de test, copier le JWT retourné et le saisir dans **Authorize**. Swagger ajoutera l’en-tête d’authentification automatiquement.
+5. Exécuter `GET /applications` : avec un JWT valide, la requête doit répondre `200`; sans jeton, elle doit répondre `401`.
+
+Le document OpenAPI brut est disponible sur `http://localhost:5000/api-docs.json`.
+Pour essayer une route protégée, sélectionner **Authorize** dans Swagger UI et
+saisir le JWT obtenu avec `/auth/register` ou `/auth/login` (sans ajouter
+`Bearer ` : Swagger l’ajoute automatiquement).
 
 ---
 
@@ -187,7 +207,7 @@ catégories disponibles sont `CV`, `Lettre de motivation`, `Certificat` et
 | `pnpm test` | Exécute la suite de tests Jest |
 | `pnpm test:auth` | Exécute les tests unitaires d’authentification |
 
-La documentation Swagger/OpenAPI n’est pas encore configurée dans ce backend.
+La documentation Swagger/OpenAPI est configurée et peut être vérifiée en suivant les étapes de la section « Consulter la documentation Swagger » ci-dessus.
 
 Les tests d’authentification utilisent Jest avec des mocks de MongoDB et de
 `bcrypt`. Ils couvrent les tokens JWT, l’inscription, la connexion, la
